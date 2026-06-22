@@ -5,8 +5,8 @@
 	"type": "module",
 	"license": "MIT",
 	"bin": {
-		"zip-it": "./bin/zip-it.cjs",
-		"zip-it-dotnet-init": "./bin/zip-it-dotnet-init.cjs"
+		"zip-it": "bin/zip-it.cjs",
+		"zip-it-dotnet-init": "bin/zip-it-dotnet-init.cjs"
 	},
 	"files": [
 		"bin",
@@ -27,7 +27,7 @@
 		"yazl": "^3.3.1"
 	},
 	"devDependencies": {
-		"@types/node": "^25.9.0",
+		"@types/node": "^26.0.0",
 		"@types/yazl": "^3.3.1",
 		"typescript": "^6.0.3"
 	},
