@@ -1,8 +1,10 @@
 // src/types.ts
 
 export const PROFILE_VALUES = ["auto", "node", "dotnet", "none"] as const;
+export const MEDIA_MODE_VALUES = ["tiny", "preserve-shape"] as const;
 
 export type RequestedProfile = (typeof PROFILE_VALUES)[number];
+export type MediaMode = (typeof MEDIA_MODE_VALUES)[number];
 export type EffectiveProfile = "node" | "dotnet" | "node+dotnet" | "none";
 
 export type DetectedProjectKinds = Readonly<{
@@ -19,6 +21,7 @@ export type ProfileResolution = Readonly<{
 
 export type MediaOptions = Readonly<{
 	minify: boolean;
+	mode: MediaMode;
 	keepVideoOriginals: boolean;
 	keepAudioOriginals: boolean;
 }>;
@@ -38,6 +41,7 @@ export type RawCliOptions = {
 	profile?: RequestedProfile;
 	ignorePatterns: string[];
 	minifyMedia?: boolean;
+	mediaMode?: MediaMode;
 	keepVideoOriginals?: boolean;
 	keepAudioOriginals?: boolean;
 	dryRun?: boolean;
@@ -49,6 +53,7 @@ export type ZipItConfig = Readonly<{
 	ignore?: readonly string[];
 	media?: Readonly<{
 		minify?: boolean;
+		mode?: MediaMode;
 		keepVideoOriginals?: boolean;
 		keepAudioOriginals?: boolean;
 	}>;
@@ -78,6 +83,8 @@ export type ZipStats = {
 	ignoredFiles: number;
 	ignoredDirectories: number;
 	replacedImageFiles: number;
+	preservedShapeImageFiles: number;
+	keptOriginalImageFiles: number;
 	replacedVideoFiles: number;
 	replacedAudioFiles: number;
 	keptOriginalVideoFiles: number;

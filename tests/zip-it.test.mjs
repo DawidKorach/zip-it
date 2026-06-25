@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import { test } from "node:test";
 import { mergeOptions, parseRawCliOptions, readProjectConfig } from "../dist/config.js";
 import { getDefaultIgnorePatterns } from "../dist/ignore-patterns.js";
-import { getFileKind } from "../dist/media.js";
+import { createShapePreservingImagePlaceholder, getFileKind } from "../dist/media.js";
 import { detectProjectKinds, resolveProfile } from "../dist/profile.js";
 import { scanProjectFiles } from "../dist/scanner.js";
 
@@ -38,9 +38,13 @@ test("parses --profile and rejects unsupported values", async () => {
 		/error: Command failed|Invalid profile: php/i,
 	);
 
-	const raw = parseRawCliOptions(["--profile", "dotnet", "--dry-run"]);
+	const raw = parseRawCliOptions(["--profile", "dotnet", "--dry-run", "--media-mode", "preserve-shape"]);
 	assert.equal(raw.profile, "dotnet");
 	assert.equal(raw.dryRun, true);
+	assert.equal(raw.mediaMode, "preserve-shape");
+
+	const aliasRaw = parseRawCliOptions(["--preserve-media-shape"]);
+	assert.equal(aliasRaw.mediaMode, "preserve-shape");
 });
 
 test("auto-detects Node projects", async () => {
@@ -149,7 +153,7 @@ test("loads optional .zip-it.json and lets CLI override scalar values", async ()
 			profile: "dotnet",
 			output: ".artifacts/from-config.zip",
 			ignore: ["**/*.bak"],
-			media: { minify: false, keepAudioOriginals: true },
+			media: { minify: false, mode: "preserve-shape", keepAudioOriginals: true },
 		}),
 	);
 
@@ -162,7 +166,34 @@ test("loads optional .zip-it.json and lets CLI override scalar values", async ()
 	assert.equal(options.profile, "node");
 	assert.equal(options.output, path.join(root, ".artifacts/from-config.zip"));
 	assert.deepEqual(options.ignorePatterns, ["**/*.bak"]);
-	assert.deepEqual(options.media, { minify: false, keepVideoOriginals: true, keepAudioOriginals: true });
+	assert.deepEqual(options.media, {
+		minify: false,
+		mode: "preserve-shape",
+		keepVideoOriginals: true,
+		keepAudioOriginals: true,
+	});
+});
+
+
+test("creates shape-preserving image placeholders for PNG files", async () => {
+	const root = await createTempProject();
+	const png = Buffer.alloc(24);
+	Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(png, 0);
+	png.writeUInt32BE(320, 16);
+	png.writeUInt32BE(180, 20);
+	await writeFile(root, "Content/Images/background.png", png);
+
+	const result = await createShapePreservingImagePlaceholder(
+		"Content/Images/background.png",
+		path.join(root, "Content/Images/background.png"),
+	);
+
+	assert(result);
+	assert.equal(result.dimensions.width, 320);
+	assert.equal(result.dimensions.height, 180);
+	assert.equal(result.buffer.readUInt32BE(16), 320);
+	assert.equal(result.buffer.readUInt32BE(20), 180);
+	assert(result.buffer.length < 200);
 });
 
 test("detects audio files", () => {

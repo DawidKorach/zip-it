@@ -56,6 +56,7 @@ export function printStartReport(options: CliOptions, profile: ProfileResolution
 		`🔎 Detected: node=${profile.detected.node ? "yes" : "no"}, dotnet=${profile.detected.dotnet ? "yes" : "no"}`,
 	);
 	console.log(`🧱 Ignore groups: ${profile.activeIgnoreGroups.join(", ")}`);
+	console.log(`🖼️ Media mode: ${options.media.minify ? options.media.mode : "disabled"}`);
 }
 
 export function printDryRunReport(
@@ -75,6 +76,7 @@ export function printDryRunReport(
 	console.log(`🖼️ Images to replace: ${dryRun.mediaReplacementPlan.images}`);
 	console.log(`🎞️ Videos to replace: ${dryRun.mediaReplacementPlan.videos}`);
 	console.log(`🔇 Audio files to replace: ${dryRun.mediaReplacementPlan.audio}`);
+	console.log(`🖼️ Media mode: ${options.media.minify ? options.media.mode : "disabled"}`);
 
 	if (dryRun.mediaReplacementPlan.keptVideos > 0) {
 		console.log(`🎞️ Video files kept original: ${dryRun.mediaReplacementPlan.keptVideos}`);
@@ -106,6 +108,15 @@ export function printZipReport(
 	console.log(`🚫 Ignored files: ${stats.ignoredFiles}`);
 	console.log(`🚫 Ignored directories: ${stats.ignoredDirectories}`);
 	console.log(`🖼️ Replaced image files: ${stats.replacedImageFiles}`);
+
+	if (stats.preservedShapeImageFiles > 0) {
+		console.log(`📐 Shape-preserving image placeholders: ${stats.preservedShapeImageFiles}`);
+	}
+
+	if (stats.keptOriginalImageFiles > 0) {
+		console.log(`🖼️ Image files kept original: ${stats.keptOriginalImageFiles}`);
+	}
+
 	console.log(`🎞️ Replaced video files: ${stats.replacedVideoFiles}`);
 	console.log(`🔇 Replaced audio files: ${stats.replacedAudioFiles}`);
 

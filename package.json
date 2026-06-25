@@ -1,6 +1,6 @@
 {
 	"name": "@da-core/zip-it",
-	"version": "1.1.2",
+	"version": "1.2.0",
 	"description": "Create lightweight project ZIP archives with minimized media placeholders.",
 	"type": "module",
 	"license": "MIT",

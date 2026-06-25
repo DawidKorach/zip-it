@@ -3,7 +3,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import yazl from "yazl";
-import { createAudioPlaceholder, createImagePlaceholder, createVideoPlaceholder, isFfmpegAvailable } from "./media.js";
+import {
+	createAudioPlaceholder,
+	createImagePlaceholder,
+	createShapePreservingImagePlaceholder,
+	createVideoPlaceholder,
+	isFfmpegAvailable,
+} from "./media.js";
 import type { CliOptions, FileEntry, ZipStats } from "./types.js";
 
 export async function ensureOutputDir(outputPath: string): Promise<void> {
@@ -18,6 +24,8 @@ export function createInitialStats(includedFiles: number, ignoredFiles: number, 
 		ignoredFiles,
 		ignoredDirectories,
 		replacedImageFiles: 0,
+		preservedShapeImageFiles: 0,
+		keptOriginalImageFiles: 0,
 		replacedVideoFiles: 0,
 		replacedAudioFiles: 0,
 		keptOriginalVideoFiles: 0,
@@ -94,6 +102,23 @@ async function addEntry(
 	}
 
 	if (entry.kind === "image") {
+		if (options.media.mode === "preserve-shape") {
+			const placeholder = await createShapePreservingImagePlaceholder(entry.relativePath, entry.fullPath);
+
+			if (placeholder) {
+				stats.zippedInputSize += placeholder.buffer.length;
+				stats.replacedImageFiles++;
+				stats.preservedShapeImageFiles++;
+				zipfile.addBuffer(placeholder.buffer, entry.relativePath, { mtime: new Date(0) });
+				return;
+			}
+
+			stats.keptOriginalImageFiles++;
+			stats.warnings.push(`Could not create shape-preserving image placeholder for ${entry.relativePath}. Kept original.`);
+			addOriginalFile(zipfile, entry, stats);
+			return;
+		}
+
 		const placeholder = createImagePlaceholder(entry.relativePath);
 		stats.zippedInputSize += placeholder.length;
 		stats.replacedImageFiles++;

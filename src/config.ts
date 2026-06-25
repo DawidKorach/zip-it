@@ -3,7 +3,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { isRequestedProfile } from "./profile.js";
-import type { CliOptions, RawCliOptions, RequestedProfile, ZipItConfig } from "./types.js";
+import { MEDIA_MODE_VALUES } from "./types.js";
+import type { CliOptions, MediaMode, RawCliOptions, RequestedProfile, ZipItConfig } from "./types.js";
 
 export const DEFAULT_OUTPUT_PATH = ".artifacts/project.zip";
 export const CONFIG_FILE_NAME = ".zip-it.json";
@@ -28,6 +29,7 @@ export function mergeOptions(rawCliOptions: RawCliOptions, config: ZipItConfig):
 	const profile = rawCliOptions.profile ?? config.profile ?? "auto";
 
 	const minifyMedia = rawCliOptions.minifyMedia ?? config.media?.minify ?? true;
+	const mediaMode = rawCliOptions.mediaMode ?? config.media?.mode ?? "tiny";
 	const keepVideoOriginals = rawCliOptions.keepVideoOriginals ?? config.media?.keepVideoOriginals ?? false;
 	const keepAudioOriginals = rawCliOptions.keepAudioOriginals ?? config.media?.keepAudioOriginals ?? false;
 	const ignorePatterns = [...(config.ignore ?? []), ...rawCliOptions.ignorePatterns];
@@ -38,6 +40,7 @@ export function mergeOptions(rawCliOptions: RawCliOptions, config: ZipItConfig):
 		profile,
 		media: {
 			minify: minifyMedia,
+			mode: mediaMode,
 			keepVideoOriginals,
 			keepAudioOriginals,
 		},
@@ -72,6 +75,12 @@ export function parseRawCliOptions(argv: readonly string[]): RawCliOptions {
 				break;
 			case "--no-media-minify":
 				options.minifyMedia = false;
+				break;
+			case "--media-mode":
+				options.mediaMode = parseMediaMode(requireValue(argv, ++index, "--media-mode"));
+				break;
+			case "--preserve-media-shape":
+				options.mediaMode = "preserve-shape";
 				break;
 			case "--keep-video-originals":
 				options.keepVideoOriginals = true;
@@ -112,6 +121,7 @@ function parseMediaConfig(value: unknown): ZipItConfig["media"] {
 
 	return {
 		minify: value.minify === undefined ? undefined : readBoolean(value.minify, "media.minify"),
+		mode: value.mode === undefined ? undefined : parseMediaMode(readString(value.mode, "media.mode")),
 		keepVideoOriginals:
 			value.keepVideoOriginals === undefined
 				? undefined
@@ -129,6 +139,14 @@ function parseRequestedProfile(value: string): RequestedProfile {
 	}
 
 	return value;
+}
+
+function parseMediaMode(value: string): MediaMode {
+	if (!MEDIA_MODE_VALUES.includes(value as MediaMode)) {
+		throw new Error(`Invalid media mode: ${value}. Expected one of: tiny, preserve-shape.`);
+	}
+
+	return value as MediaMode;
 }
 
 function requireValue(argv: readonly string[], index: number, optionName: string): string {
@@ -187,6 +205,9 @@ Options:
 --ignore <glob>            Additional ignore pattern. Can be used multiple times.
 --dry-run                  Show the packaging plan without creating a ZIP.
 --no-media-minify          Keep images, videos and audio unchanged.
+--media-mode <tiny|preserve-shape>
+                           Media minimization mode. Defaults to tiny.
+--preserve-media-shape     Alias for --media-mode preserve-shape.
 --keep-video-originals     Minify images/audio, but keep videos unchanged.
 --keep-audio-originals     Minify images/videos, but keep audio unchanged.
 -h, --help                 Show help.
@@ -195,6 +216,7 @@ Examples:
 zip-it
 zip-it --profile dotnet
 zip-it --profile dotnet --dry-run
+zip-it --profile dotnet --media-mode preserve-shape
 zip-it --output .artifacts/code-only.zip
 zip-it --root ../my-project --output ../my-project.zip
 zip-it --ignore "coverage/**" --ignore "tmp/**"

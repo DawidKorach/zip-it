@@ -51,6 +51,9 @@ Options:
   --ignore <glob>            Additional ignore pattern. Can be used multiple times.
   --dry-run                  Show the packaging plan without creating a ZIP.
   --no-media-minify          Keep images, videos and audio unchanged.
+  --media-mode <tiny|preserve-shape>
+                             Media minimization mode. Defaults to tiny.
+  --preserve-media-shape     Alias for --media-mode preserve-shape.
   --keep-video-originals     Minify images/audio, but keep videos unchanged.
   --keep-audio-originals     Minify images/videos, but keep audio unchanged.
   -h, --help                 Show help.
@@ -63,6 +66,7 @@ npx @da-core/zip-it
 npx @da-core/zip-it --profile dotnet
 npx @da-core/zip-it --profile dotnet --dry-run
 npx @da-core/zip-it --profile dotnet --no-media-minify
+npx @da-core/zip-it --profile dotnet --media-mode preserve-shape
 npx @da-core/zip-it --profile dotnet --output .artifacts/calm-ball-source.zip
 npx @da-core/zip-it --root ../my-project --output ../my-project.zip
 npx @da-core/zip-it --ignore "coverage/**" --ignore "tmp/**"
@@ -79,6 +83,7 @@ A project can define `.zip-it.json`. The file is optional.
 	"ignore": ["**/local-recordings/**", "**/*.bak"],
 	"media": {
 		"minify": true,
+		"mode": "tiny",
 		"keepVideoOriginals": false,
 		"keepAudioOriginals": false
 	}
@@ -207,6 +212,33 @@ Audio is minimized for:
 - `.wma`
 
 Video and audio minimization use `ffmpeg` when needed. If `ffmpeg` is not available, those files are kept unchanged and the tool prints a warning.
+
+### Preserving image dimensions
+
+The default media mode is `tiny`, which keeps the generated ZIP as small as possible by replacing images with 1x1 placeholders. For MonoGame projects this can be too aggressive, because `Content.mgcb` and the Content Pipeline may expect source textures to keep their original dimensions.
+
+Use `preserve-shape` when image dimensions matter:
+
+```bash
+npx @da-core/zip-it --profile dotnet --media-mode preserve-shape
+# or
+npx @da-core/zip-it --profile dotnet --preserve-media-shape
+```
+
+Or configure it in `.zip-it.json`:
+
+```json
+{
+	"media": {
+		"minify": true,
+		"mode": "preserve-shape"
+	}
+}
+```
+
+In `preserve-shape` mode, images are still replaced with lightweight valid files, but generated placeholders keep the original width and height when possible. The mode currently supports shape-preserving placeholders for `.png`, `.jpg`, `.jpeg`, `.gif`, `.svg` and `.bmp`. If a shape-preserving placeholder cannot be generated safely, the original image is kept and a warning is printed. `.webp` files are therefore kept original in this mode instead of being degraded to 1x1.
+
+Metadata such as EXIF is intentionally not preserved by default. It can be large and may contain local or sensitive information. For video and audio, the existing minimization behavior is unchanged; use `--keep-video-originals`, `--keep-audio-originals` or `--no-media-minify` when those files must remain untouched.
 
 ## .NET solution initialization
 
