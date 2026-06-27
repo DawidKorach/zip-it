@@ -1,21 +1,25 @@
 // src/types.ts
 
-export const PROFILE_VALUES = ["auto", "node", "dotnet", "none"] as const;
+import { PROJECT_KIND_VALUES, type ProjectKind } from "./project-architectures.js";
+
+export { PROJECT_KIND_VALUES, type ProjectKind } from "./project-architectures.js";
+
+export const PROFILE_VALUES = ["auto", ...PROJECT_KIND_VALUES, "none"] as const;
 export const MEDIA_MODE_VALUES = ["tiny", "preserve-shape"] as const;
+export const VERBOSITY_LEVEL_VALUES = [0, 1, 2, 3, 4] as const;
 
-export type RequestedProfile = (typeof PROFILE_VALUES)[number];
+export type RequestedProfile = "auto" | ProjectKind | "none";
 export type MediaMode = (typeof MEDIA_MODE_VALUES)[number];
-export type EffectiveProfile = "node" | "dotnet" | "node+dotnet" | "none";
+export type VerbosityLevel = (typeof VERBOSITY_LEVEL_VALUES)[number];
+export type EffectiveProfile = string;
 
-export type DetectedProjectKinds = Readonly<{
-	node: boolean;
-	dotnet: boolean;
-}>;
+export type DetectedProjectKinds = Readonly<Record<ProjectKind, boolean>>;
 
 export type ProfileResolution = Readonly<{
 	requestedProfile: RequestedProfile;
 	effectiveProfile: EffectiveProfile;
 	detected: DetectedProjectKinds;
+	activeProjectKinds: readonly ProjectKind[];
 	activeIgnoreGroups: readonly string[];
 }>;
 
@@ -33,6 +37,7 @@ export type CliOptions = Readonly<{
 	media: MediaOptions;
 	ignorePatterns: readonly string[];
 	dryRun: boolean;
+	verbosity: VerbosityLevel;
 }>;
 
 export type RawCliOptions = {
@@ -45,6 +50,7 @@ export type RawCliOptions = {
 	keepVideoOriginals?: boolean;
 	keepAudioOriginals?: boolean;
 	dryRun?: boolean;
+	verbosity?: VerbosityLevel;
 };
 
 export type ZipItConfig = Readonly<{

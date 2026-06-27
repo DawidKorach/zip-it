@@ -1,6 +1,6 @@
 // src/ignore-patterns.ts
 
-import type { EffectiveProfile } from "./types.js";
+import { PROJECT_KIND_VALUES, type EffectiveProfile } from "./types.js";
 
 export const COMMON_IGNORE_PATTERNS = [
 	".artifacts/**",
@@ -19,13 +19,28 @@ export const SECURITY_IGNORE_PATTERNS = [
 	"**/*.p12",
 	"**/*.pem",
 	"**/*.key",
+	"**/*.jks",
 	"**/*.keystore",
+	"**/keystore.properties",
 	"**/secrets.json",
 	"**/appsettings.Local.json",
 	"**/appsettings.*.Local.json",
 ] as const;
 
-export const IDE_IGNORE_PATTERNS = ["**/.idea/**", "**/.vscode/**", "**/.vs/**"] as const;
+export const IDE_IGNORE_PATTERNS = [
+	"**/.idea/caches/**",
+	"**/.idea/httpRequests/**",
+	"**/.idea/shelf/**",
+	"**/.idea/workspace.xml",
+	"**/.idea/tasks.xml",
+	"**/.idea/usage.statistics.xml",
+	"**/.idea/dictionaries/*_local.xml",
+	"**/.idea/dataSources/**",
+	"**/.idea/dataSources.local.xml",
+	"**/.idea/**/workspace.xml",
+	"**/.vscode/**",
+	"**/.vs/**",
+] as const;
 
 export const NODE_IGNORE_PATTERNS = [
 	"**/node_modules/**",
@@ -83,21 +98,68 @@ export const DOTNET_IGNORE_PATTERNS = [
 	"**/Content/obj/**",
 ] as const;
 
+export const ANDROID_IGNORE_PATTERNS = [
+	"**/.gradle/**",
+	"**/.kotlin/**",
+	"**/.cxx/**",
+	"**/.externalNativeBuild/**",
+	"**/captures/**",
+	"**/*/build/**",
+	"**/local.properties",
+	"**/*.apk",
+	"**/*.aab",
+	"**/*.ap_",
+	"**/*.dex",
+	"**/*.hprof",
+] as const;
+
+export const ANDROID_ROOT_BUILD_IGNORE_PATTERNS = ["build/**"] as const;
+
+const IGNORE_PATTERN_GROUPS = {
+	common: COMMON_IGNORE_PATTERNS,
+	security: SECURITY_IGNORE_PATTERNS,
+	ide: IDE_IGNORE_PATTERNS,
+	node: NODE_IGNORE_PATTERNS,
+	"node-global-build": NODE_GLOBAL_BUILD_IGNORE_PATTERNS,
+	"node-mixed-build-safety": NODE_MIXED_BUILD_IGNORE_PATTERNS,
+	dotnet: DOTNET_IGNORE_PATTERNS,
+	android: ANDROID_IGNORE_PATTERNS,
+	"android-root-build": ANDROID_ROOT_BUILD_IGNORE_PATTERNS,
+} as const;
+
+export type IgnorePatternGroupName = keyof typeof IGNORE_PATTERN_GROUPS;
+
+export function getIgnorePatternsForGroups(groupNames: readonly string[]): string[] {
+	const patterns: string[] = [];
+
+	for (const groupName of groupNames) {
+		const group = IGNORE_PATTERN_GROUPS[groupName as IgnorePatternGroupName];
+
+		if (group) {
+			patterns.push(...group);
+		}
+	}
+
+	return [...new Set(patterns)];
+}
+
 export function getDefaultIgnorePatterns(effectiveProfile: EffectiveProfile): string[] {
-	const patterns: string[] = [...COMMON_IGNORE_PATTERNS, ...SECURITY_IGNORE_PATTERNS, ...IDE_IGNORE_PATTERNS];
+	const activeProjectKinds = effectiveProfile === "none" ? [] : effectiveProfile.split("+");
+	const groups = ["common", "security", "ide"];
 
-	if (effectiveProfile === "node" || effectiveProfile === "node+dotnet") {
-		patterns.push(...NODE_IGNORE_PATTERNS);
-		patterns.push(
-			...(effectiveProfile === "node+dotnet"
-				? NODE_MIXED_BUILD_IGNORE_PATTERNS
-				: NODE_GLOBAL_BUILD_IGNORE_PATTERNS),
-		);
+	for (const kind of PROJECT_KIND_VALUES) {
+		if (activeProjectKinds.includes(kind)) {
+			groups.push(kind);
+		}
 	}
 
-	if (effectiveProfile === "dotnet" || effectiveProfile === "node+dotnet") {
-		patterns.push(...DOTNET_IGNORE_PATTERNS);
+	if (activeProjectKinds.includes("node")) {
+		groups.push(activeProjectKinds.length === 1 ? "node-global-build" : "node-mixed-build-safety");
 	}
 
-	return patterns;
+	if (activeProjectKinds.includes("android") && !activeProjectKinds.includes("dotnet")) {
+		groups.push("android-root-build");
+	}
+
+	return getIgnorePatternsForGroups(groups);
 }

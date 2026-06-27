@@ -1,115 +1,71 @@
 // src/profile.ts
 
-import fs from "node:fs";
-import path from "node:path";
+import {
+	createProjectDetectionContext,
+	getProjectArchitecture,
+	PROJECT_ARCHITECTURES,
+	PROJECT_KIND_VALUES,
+	type ProjectKind,
+} from "./project-architectures.js";
 import type { DetectedProjectKinds, EffectiveProfile, ProfileResolution, RequestedProfile } from "./types.js";
 
-const DOTNET_MARKER_FILE_NAMES = new Set(["global.json", "Directory.Build.props", "Directory.Build.targets"]);
-const DOTNET_PROJECT_EXTENSIONS = new Set([".sln", ".slnx", ".csproj", ".fsproj", ".vbproj"]);
-
 export function isRequestedProfile(value: string): value is RequestedProfile {
-	return value === "auto" || value === "node" || value === "dotnet" || value === "none";
+	return value === "auto" || value === "none" || PROJECT_KIND_VALUES.includes(value as ProjectKind);
 }
 
 export async function detectProjectKinds(root: string): Promise<DetectedProjectKinds> {
-	const candidates = await getRootAndDirectChildFileNames(root);
+	const context = await createProjectDetectionContext(root);
+	const detectedEntries = await Promise.all(
+		PROJECT_ARCHITECTURES.map(async (architecture) => [architecture.kind, await architecture.detect(context)] as const),
+	);
 
-	return {
-		node: candidates.some((candidate) => candidate.fileName === "package.json"),
-		dotnet: candidates.some((candidate) => isDotnetMarker(candidate.fileName)),
-	};
+	return Object.fromEntries(detectedEntries) as DetectedProjectKinds;
 }
 
 export function resolveProfile(requestedProfile: RequestedProfile, detected: DetectedProjectKinds): ProfileResolution {
-	const effectiveProfile = getEffectiveProfile(requestedProfile, detected);
-	const activeIgnoreGroups = getActiveIgnoreGroups(effectiveProfile);
+	const activeProjectKinds = getActiveProjectKinds(requestedProfile, detected);
+	const effectiveProfile = getEffectiveProfile(activeProjectKinds);
+	const activeIgnoreGroups = getActiveIgnoreGroups(activeProjectKinds);
 
 	return {
 		requestedProfile,
 		effectiveProfile,
 		detected,
+		activeProjectKinds,
 		activeIgnoreGroups,
 	};
 }
 
-function getEffectiveProfile(requestedProfile: RequestedProfile, detected: DetectedProjectKinds): EffectiveProfile {
-	switch (requestedProfile) {
-		case "node":
-			return "node";
-		case "dotnet":
-			return "dotnet";
-		case "none":
-			return "none";
-		case "auto":
-			if (detected.node && detected.dotnet) {
-				return "node+dotnet";
-			}
-
-			if (detected.dotnet) {
-				return "dotnet";
-			}
-
-			if (detected.node) {
-				return "node";
-			}
-
-			return "none";
+function getActiveProjectKinds(requestedProfile: RequestedProfile, detected: DetectedProjectKinds): ProjectKind[] {
+	if (requestedProfile === "none") {
+		return [];
 	}
+
+	if (requestedProfile !== "auto") {
+		return [requestedProfile];
+	}
+
+	return PROJECT_KIND_VALUES.filter((kind) => detected[kind]);
 }
 
-function getActiveIgnoreGroups(effectiveProfile: EffectiveProfile): string[] {
+function getEffectiveProfile(activeProjectKinds: readonly ProjectKind[]): EffectiveProfile {
+	return activeProjectKinds.length === 0 ? "none" : activeProjectKinds.join("+");
+}
+
+function getActiveIgnoreGroups(activeProjectKinds: readonly ProjectKind[]): string[] {
 	const groups = ["common", "security", "ide"];
 
-	if (effectiveProfile === "node" || effectiveProfile === "node+dotnet") {
-		groups.push("node");
+	for (const kind of activeProjectKinds) {
+		groups.push(...getProjectArchitecture(kind).ignoreGroups);
 	}
 
-	if (effectiveProfile === "dotnet" || effectiveProfile === "node+dotnet") {
-		groups.push("dotnet");
+	if (activeProjectKinds.includes("node")) {
+		groups.push(activeProjectKinds.length === 1 ? "node-global-build" : "node-mixed-build-safety");
 	}
 
-	if (effectiveProfile === "node+dotnet") {
-		groups.push("mixed-build-safety");
+	if (activeProjectKinds.includes("android") && !activeProjectKinds.includes("dotnet")) {
+		groups.push("android-root-build");
 	}
 
 	return groups;
-}
-
-async function getRootAndDirectChildFileNames(root: string): Promise<Array<{ directory: string; fileName: string }>> {
-	const result: Array<{ directory: string; fileName: string }> = [];
-	const rootEntries = await safeReadDirectory(root);
-
-	for (const entry of rootEntries) {
-		if (entry.isFile()) {
-			result.push({ directory: root, fileName: entry.name });
-			continue;
-		}
-
-		if (!entry.isDirectory() || entry.name === ".git" || entry.name === "node_modules") {
-			continue;
-		}
-
-		const childDirectory = path.join(root, entry.name);
-		const childEntries = await safeReadDirectory(childDirectory);
-
-		for (const childEntry of childEntries) {
-			if (childEntry.isFile()) {
-				result.push({ directory: childDirectory, fileName: childEntry.name });
-			}
-		}
-	}
-
-	return result;
-}
-
-async function safeReadDirectory(directory: string): Promise<fs.Dirent[]> {
-	try {
-		return await fs.promises.readdir(directory, { withFileTypes: true });
-	} catch {
-		return [];
-	}
-}
-
-function isDotnetMarker(fileName: string): boolean {
-	return DOTNET_MARKER_FILE_NAMES.has(fileName) || DOTNET_PROJECT_EXTENSIONS.has(path.extname(fileName));
 }

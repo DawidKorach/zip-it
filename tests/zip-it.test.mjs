@@ -6,7 +6,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { test } from "node:test";
 import { mergeOptions, parseRawCliOptions, readProjectConfig } from "../dist/config.js";
-import { getDefaultIgnorePatterns } from "../dist/ignore-patterns.js";
+import { getIgnorePatternsForGroups } from "../dist/ignore-patterns.js";
 import { createShapePreservingImagePlaceholder, getFileKind } from "../dist/media.js";
 import { detectProjectKinds, resolveProfile } from "../dist/profile.js";
 import { scanProjectFiles } from "../dist/scanner.js";
@@ -26,7 +26,7 @@ async function writeFile(root, relativePath, content = "test") {
 async function scanWithProfile(root, requestedProfile = "auto") {
 	const detected = await detectProjectKinds(root);
 	const profile = resolveProfile(requestedProfile, detected);
-	const ignorePatterns = getDefaultIgnorePatterns(profile.effectiveProfile);
+	const ignorePatterns = getIgnorePatternsForGroups(profile.activeIgnoreGroups);
 	const scan = await scanProjectFiles(root, ignorePatterns);
 
 	return { detected, profile, scan };
@@ -38,13 +38,25 @@ test("parses --profile and rejects unsupported values", async () => {
 		/error: Command failed|Invalid profile: php/i,
 	);
 
-	const raw = parseRawCliOptions(["--profile", "dotnet", "--dry-run", "--media-mode", "preserve-shape"]);
-	assert.equal(raw.profile, "dotnet");
+	const raw = parseRawCliOptions(["--profile", "android", "--dry-run", "--media-mode", "preserve-shape"]);
+	assert.equal(raw.profile, "android");
 	assert.equal(raw.dryRun, true);
 	assert.equal(raw.mediaMode, "preserve-shape");
 
 	const aliasRaw = parseRawCliOptions(["--preserve-media-shape"]);
 	assert.equal(aliasRaw.mediaMode, "preserve-shape");
+
+	const verboseRaw = parseRawCliOptions(["--verbose", "2"]);
+	assert.equal(verboseRaw.verbosity, 2);
+
+	const shortVerboseRaw = parseRawCliOptions(["-v", "3"]);
+	assert.equal(shortVerboseRaw.verbosity, 3);
+
+	const repeatedVerboseRaw = parseRawCliOptions(["-vv"]);
+	assert.equal(repeatedVerboseRaw.verbosity, 2);
+
+	const devVerboseRaw = parseRawCliOptions(["--verbose", "dev"]);
+	assert.equal(devVerboseRaw.verbosity, 4);
 });
 
 test("auto-detects Node projects", async () => {
@@ -53,7 +65,7 @@ test("auto-detects Node projects", async () => {
 
 	const { detected, profile } = await scanWithProfile(root);
 
-	assert.deepEqual(detected, { node: true, dotnet: false });
+	assert.deepEqual(detected, { node: true, dotnet: false, android: false });
 	assert.equal(profile.effectiveProfile, "node");
 });
 
@@ -68,7 +80,7 @@ test("auto-detects .NET projects and ignores bin/obj while keeping source files"
 
 	const { detected, profile, scan } = await scanWithProfile(root, "dotnet");
 
-	assert.deepEqual(detected, { node: false, dotnet: true });
+	assert.deepEqual(detected, { node: false, dotnet: true, android: false });
 	assert.equal(profile.effectiveProfile, "dotnet");
 	assert.deepEqual(scan.files, [
 		"build/Directory.Build.targets",
@@ -89,9 +101,63 @@ test("auto-detects mixed Node + .NET projects and combines ignore rules", async 
 
 	const { detected, profile, scan } = await scanWithProfile(root);
 
-	assert.deepEqual(detected, { node: true, dotnet: true });
+	assert.deepEqual(detected, { node: true, dotnet: true, android: false });
 	assert.equal(profile.effectiveProfile, "node+dotnet");
 	assert.deepEqual(scan.files, ["Game.sln", "package.json", "src/Game/Game.csproj"]);
+});
+
+test("auto-detects Android Gradle projects and ignores generated Android Studio artifacts", async () => {
+	const root = await createTempProject();
+	await writeFile(root, "settings.gradle.kts", "pluginManagement {}\ndependencyResolutionManagement {}\nrootProject.name = \"AndroidAppDump\"\ninclude(\":app\")\n");
+	await writeFile(root, "build.gradle.kts", "plugins { alias(libs.plugins.android.application) apply false }\n");
+	await writeFile(root, "app/build.gradle.kts", "plugins { id(\"com.android.application\"); id(\"org.jetbrains.kotlin.android\") }\n");
+	await writeFile(root, "app/src/main/AndroidManifest.xml", "<manifest />\n");
+	await writeFile(root, "app/src/main/java/com/example/appdump/MainActivity.kt", "class MainActivity\n");
+	await writeFile(root, "app/src/main/res/values/strings.xml", "<resources />\n");
+	await writeFile(root, "gradle/wrapper/gradle-wrapper.properties", "distributionUrl=https://services.gradle.org/distributions/gradle.zip\n");
+	await writeFile(root, "gradle/wrapper/gradle-wrapper.jar", "binary");
+	await writeFile(root, "gradlew", "#!/bin/sh\n");
+	await writeFile(root, ".idea/codeStyles/Project.xml", "<project />\n");
+	await writeFile(root, ".idea/caches/build_file_checksums.ser", "cache");
+	await writeFile(root, ".gradle/9.1.0/fileHashes/fileHashes.bin", "cache");
+	await writeFile(root, ".kotlin/sessions/kotlin-compiler-123.salive", "cache");
+	await writeFile(root, "app/build/intermediates/apk/debug/app-debug.apk", "apk");
+	await writeFile(root, "build/reports/problems/problems-report.html", "generated");
+	await writeFile(root, "local.properties", "sdk.dir=C:/Users/Dawid/AppData/Local/Android/Sdk\n");
+
+	const { detected, profile, scan } = await scanWithProfile(root);
+
+	assert.deepEqual(detected, { node: false, dotnet: false, android: true });
+	assert.equal(profile.effectiveProfile, "android");
+	assert(scan.files.includes("settings.gradle.kts"));
+	assert(scan.files.includes("app/build.gradle.kts"));
+	assert(scan.files.includes("app/src/main/AndroidManifest.xml"));
+	assert(scan.files.includes("app/src/main/java/com/example/appdump/MainActivity.kt"));
+	assert(scan.files.includes("gradle/wrapper/gradle-wrapper.jar"));
+	assert(scan.files.includes(".idea/codeStyles/Project.xml"));
+	assert(!scan.files.includes(".idea/caches/build_file_checksums.ser"));
+	assert(!scan.files.includes(".gradle/9.1.0/fileHashes/fileHashes.bin"));
+	assert(!scan.files.includes(".kotlin/sessions/kotlin-compiler-123.salive"));
+	assert(!scan.files.includes("app/build/intermediates/apk/debug/app-debug.apk"));
+	assert(!scan.files.includes("build/reports/problems/problems-report.html"));
+	assert(!scan.files.includes("local.properties"));
+});
+
+test("keeps root build files for mixed Android + .NET projects", async () => {
+	const root = await createTempProject();
+	await writeFile(root, "settings.gradle.kts", "include(\":app\")\n");
+	await writeFile(root, "app/build.gradle.kts", "plugins { id(\"com.android.application\") }\n");
+	await writeFile(root, "app/src/main/AndroidManifest.xml", "<manifest />\n");
+	await writeFile(root, "Tooling.sln", "Microsoft Visual Studio Solution File\n");
+	await writeFile(root, "build/Directory.Build.targets", "<Project />\n");
+	await writeFile(root, "app/build/generated/source.txt", "generated");
+
+	const { detected, profile, scan } = await scanWithProfile(root);
+
+	assert.deepEqual(detected, { node: false, dotnet: true, android: true });
+	assert.equal(profile.effectiveProfile, "dotnet+android");
+	assert(scan.files.includes("build/Directory.Build.targets"));
+	assert(!scan.files.includes("app/build/generated/source.txt"));
 });
 
 test("preserves MonoGame source assets and recognizes images for minimization", async () => {

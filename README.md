@@ -18,25 +18,31 @@ Default output:
 
 ## Project profiles
 
-`zip-it` can adapt ignore rules to the project type.
+`zip-it` adapts ignore rules to detected project architectures. New architectures are registered in `src/project-architectures.ts`; each registration owns its detection logic and its architecture-specific ignore groups.
 
 ```bash
 npx @da-core/zip-it --profile auto
 npx @da-core/zip-it --profile node
 npx @da-core/zip-it --profile dotnet
+npx @da-core/zip-it --profile android
 npx @da-core/zip-it --profile none
 ```
 
-| Profile  | Behavior                                                                      |
-| -------- | ----------------------------------------------------------------------------- |
-| `auto`   | Detects Node and/or .NET markers and combines matching ignore rules. Default. |
-| `node`   | Uses frontend/Node ignore rules.                                              |
-| `dotnet` | Uses C#/.NET/Visual Studio/MonoGame friendly ignore rules.                    |
-| `none`   | Uses only common, security and IDE safety rules.                              |
+| Profile   | Behavior                                                                                     |
+| --------- | -------------------------------------------------------------------------------------------- |
+| `auto`    | Detects known architectures and combines matching ignore rules. Default.                      |
+| `node`    | Uses frontend/Node ignore rules.                                                             |
+| `dotnet`  | Uses C#/.NET/Visual Studio/MonoGame friendly ignore rules.                                    |
+| `android` | Uses Android Studio / Gradle / Kotlin friendly ignore rules.                                  |
+| `none`    | Uses only common, security and IDE safety rules.                                              |
 
-The `auto` profile recognizes .NET projects when the root or a direct child directory contains files such as `.sln`, `.slnx`, `.csproj`, `.fsproj`, `.vbproj`, `global.json`, `Directory.Build.props` or `Directory.Build.targets`.
+The `auto` profile recognizes:
 
-If a project contains both `package.json` and `.sln`/`.csproj`, `auto` combines Node and .NET rules.
+- Node projects from `package.json` in the root or a direct child directory.
+- .NET projects from `.sln`, `.slnx`, `.csproj`, `.fsproj`, `.vbproj`, `global.json`, `Directory.Build.props` or `Directory.Build.targets` in the root or a direct child directory.
+- Android Gradle projects from Gradle settings/wrapper markers plus either an Android manifest or Android Gradle plugin usage such as `com.android.application` or `com.android.library`.
+
+When multiple architectures are detected, `auto` combines them in registry order, for example `node+dotnet`, `dotnet+android` or `node+dotnet+android`.
 
 ## Options
 
@@ -46,7 +52,7 @@ zip-it [options]
 Options:
   --root <path>              Project root. Defaults to current working directory.
   --output <path>            Output ZIP path. Defaults to .artifacts/project.zip.
-  --profile <auto|node|dotnet|none>
+  --profile <auto|node|dotnet|android|none>
                              Project profile. Defaults to auto.
   --ignore <glob>            Additional ignore pattern. Can be used multiple times.
   --dry-run                  Show the packaging plan without creating a ZIP.
@@ -56,6 +62,9 @@ Options:
   --preserve-media-shape     Alias for --media-mode preserve-shape.
   --keep-video-originals     Minify images/audio, but keep videos unchanged.
   --keep-audio-originals     Minify images/videos, but keep audio unchanged.
+  -v, --verbose [0|1|2|3|dev]
+                             Increase output detail. Without a value, uses level 1.
+                             Repeated -v flags are supported: -v, -vv, -vvv, -vvvv.
   -h, --help                 Show help.
 ```
 
@@ -64,6 +73,11 @@ Options:
 ```bash
 npx @da-core/zip-it
 npx @da-core/zip-it --profile dotnet
+npx @da-core/zip-it --profile android
+npx @da-core/zip-it --profile android --dry-run
+npx @da-core/zip-it --profile android -v
+npx @da-core/zip-it --profile android --verbose 2
+npx @da-core/zip-it --profile android --verbose dev
 npx @da-core/zip-it --profile dotnet --dry-run
 npx @da-core/zip-it --profile dotnet --no-media-minify
 npx @da-core/zip-it --profile dotnet --media-mode preserve-shape
@@ -71,6 +85,20 @@ npx @da-core/zip-it --profile dotnet --output .artifacts/calm-ball-source.zip
 npx @da-core/zip-it --root ../my-project --output ../my-project.zip
 npx @da-core/zip-it --ignore "coverage/**" --ignore "tmp/**"
 ```
+
+## Console output verbosity
+
+The default output is intentionally compact. Use `--verbose` / `-v` when you need more detail.
+
+| Level | Usage examples | Output style |
+| ----- | -------------- | ------------ |
+| `0` | default, `--verbose 0` | Compact final summary only. |
+| `1` | `-v`, `--verbose`, `--verbose 1` | Human-friendly progress, resolved basics and largest included files. |
+| `2` | `-vv`, `--verbose 2` | Diagnostic profile/media details, including detected architectures and ignore groups. |
+| `3` | `-vvv`, `--verbose 3` | Level 2 plus full included-file listing. |
+| `dev` | `-vvvv`, `--verbose dev` | Level 3 plus resolved CLI internals useful while developing `zip-it`. |
+
+Recommended day-to-day usage is level `0` or `1`. Use `2+` only when validating ignore rules, profile detection or media behavior.
 
 ## Optional project config
 
@@ -106,6 +134,7 @@ The rules are split into explicit groups:
 - IDE rules,
 - Node rules,
 - .NET rules,
+- Android rules,
 - mixed project build safety rules.
 
 ### Always ignored
@@ -131,7 +160,9 @@ Sensitive files are ignored by default and reported as warnings when encountered
 **/*.p12
 **/*.pem
 **/*.key
+**/*.jks
 **/*.keystore
+**/keystore.properties
 **/secrets.json
 **/appsettings.Local.json
 **/appsettings.*.Local.json
@@ -167,19 +198,39 @@ Source files such as `.sln`, `.slnx`, `.csproj`, `.props`, `.targets`, `.cs`, `.
 
 Unlike the Node profile, the .NET profile does **not** globally ignore `build/`, because .NET repositories often keep hand-written `.props`, `.targets`, scripts or NuGet-related files there.
 
+### Android Studio / Gradle support
+
+For `--profile android`, generated Gradle, Kotlin and Android Studio build artifacts are ignored, for example:
+
+```txt
+**/.gradle/**
+**/.kotlin/**
+**/.cxx/**
+**/.externalNativeBuild/**
+**/captures/**
+**/*/build/**
+build/**                    # only when no .NET architecture is active
+**/local.properties
+**/*.apk
+**/*.aab
+**/*.ap_
+**/*.dex
+**/*.hprof
+```
+
+Source and project files such as `settings.gradle`, `settings.gradle.kts`, `build.gradle`, `build.gradle.kts`, `gradle.properties`, `gradlew`, `gradle/wrapper/gradle-wrapper.properties`, `gradle/wrapper/gradle-wrapper.jar`, `AndroidManifest.xml`, Kotlin/Java sources and Android resources are kept unless explicitly ignored.
+
+The `.idea` handling is intentionally selective. Machine-local IntelliJ/Android Studio files such as `.idea/caches`, `workspace.xml`, shelves, HTTP requests and data-source local files are ignored, while shareable files such as `.idea/codeStyles` can be included.
+
+When Android and .NET are both active, root-level `build/**` is not ignored by the Android profile. This keeps repository-level .NET files such as `build/Directory.Build.targets` safe, while module build folders such as `app/build/**` are still ignored.
+
 ## Dry run
 
 ```bash
 npx @da-core/zip-it --profile dotnet --dry-run
 ```
 
-Dry run does not create a ZIP. It prints:
-
-- resolved profile,
-- included and ignored file counts,
-- largest included files,
-- media replacement plan,
-- sensitive-file warnings.
+Dry run does not create a ZIP. At verbosity level `0`, it prints a compact plan summary. At level `1+`, it also prints the largest included files. At level `2+`, it includes diagnostic profile/media details. At level `3`, it prints the full included-file list.
 
 ## Media minimization
 
