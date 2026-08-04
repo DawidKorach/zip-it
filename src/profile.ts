@@ -16,7 +16,9 @@ export function isRequestedProfile(value: string): value is RequestedProfile {
 export async function detectProjectKinds(root: string): Promise<DetectedProjectKinds> {
 	const context = await createProjectDetectionContext(root);
 	const detectedEntries = await Promise.all(
-		PROJECT_ARCHITECTURES.map(async (architecture) => [architecture.kind, await architecture.detect(context)] as const),
+		PROJECT_ARCHITECTURES.map(
+			async (architecture) => [architecture.kind, await architecture.detect(context)] as const,
+		),
 	);
 
 	return Object.fromEntries(detectedEntries) as DetectedProjectKinds;

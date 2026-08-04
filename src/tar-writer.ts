@@ -257,7 +257,11 @@ function processCompletion(
 				resolve();
 				return;
 			}
-			reject(new Error(`${command} failed with exit code ${exitCode}: ${Buffer.concat(stderr).toString("utf8").trim()}`));
+			reject(
+				new Error(
+					`${command} failed with exit code ${exitCode}: ${Buffer.concat(stderr).toString("utf8").trim()}`,
+				),
+			);
 		};
 
 		child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));

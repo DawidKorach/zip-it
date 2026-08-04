@@ -77,7 +77,8 @@ export async function createProjectDetectionContext(root: string): Promise<Proje
 		root: resolvedRoot,
 		candidates,
 		fileExists: async (relativePath) => safeFileExists(path.join(resolvedRoot, relativePath)),
-		readTextFile: async (relativePath, maxBytes = 128 * 1024) => readTextFile(path.join(resolvedRoot, relativePath), maxBytes),
+		readTextFile: async (relativePath, maxBytes = 128 * 1024) =>
+			readTextFile(path.join(resolvedRoot, relativePath), maxBytes),
 	};
 }
 
@@ -113,15 +114,18 @@ function detectPythonProject(context: ProjectDetectionContext): boolean {
 			return true;
 		}
 
-		return normalizedName === "requirements.txt" ||
+		return (
+			normalizedName === "requirements.txt" ||
 			(normalizedName.startsWith("requirements-") && normalizedName.endsWith(".txt")) ||
-			(normalizedName.startsWith("requirements.") && normalizedName.endsWith(".txt"));
+			(normalizedName.startsWith("requirements.") && normalizedName.endsWith(".txt"))
+		);
 	});
 }
 
 async function detectAndroidGradleProject(context: ProjectDetectionContext): Promise<boolean> {
 	const hasGradleSettings =
-		hasRootCandidateFileName(context, "settings.gradle") || hasRootCandidateFileName(context, "settings.gradle.kts");
+		hasRootCandidateFileName(context, "settings.gradle") ||
+		hasRootCandidateFileName(context, "settings.gradle.kts");
 
 	if (!hasGradleSettings && !(await context.fileExists("gradle/wrapper/gradle-wrapper.properties"))) {
 		return false;
@@ -149,7 +153,9 @@ async function detectAndroidGradleProject(context: ProjectDetectionContext): Pro
 function hasRootCandidateFileName(context: ProjectDetectionContext, ...fileNames: readonly string[]): boolean {
 	const accepted = new Set(fileNames);
 
-	return context.candidates.some((candidate) => candidate.directory === context.root && accepted.has(candidate.fileName));
+	return context.candidates.some(
+		(candidate) => candidate.directory === context.root && accepted.has(candidate.fileName),
+	);
 }
 
 function containsAndroidGradlePlugin(content: string): boolean {

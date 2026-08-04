@@ -71,12 +71,12 @@ zip-it [options]
 
 ## File selection
 
-| Mode | Behavior |
-| --- | --- |
-| `auto` | Uses `git-visible` inside a Git work tree; otherwise falls back to `filesystem` with a warning. |
-| `filesystem` | Recursively scans the filesystem and applies `zip-it` ignore rules. |
-| `git-visible` | Uses tracked files plus visible untracked files, respecting Git ignore rules. |
-| `git-tracked` | Uses only files known to the Git index. |
+| Mode          | Behavior                                                                                        |
+| ------------- | ----------------------------------------------------------------------------------------------- |
+| `auto`        | Uses `git-visible` inside a Git work tree; otherwise falls back to `filesystem` with a warning. |
+| `filesystem`  | Recursively scans the filesystem and applies `zip-it` ignore rules.                             |
+| `git-visible` | Uses tracked files plus visible untracked files, respecting Git ignore rules.                   |
+| `git-tracked` | Uses only files known to the Git index.                                                         |
 
 `git-visible` is based on the equivalent of:
 
@@ -99,11 +99,11 @@ Explicit Git modes fail when Git is unavailable or the root is not a Git work tr
 
 ## Archive formats
 
-| Format | Implementation | Notes |
-| --- | --- | --- |
-| `zip` | `yazl` | Maximum compatibility; each file is compressed independently. |
-| `tar.gz` | Node.js `zlib` | Portable solid compression without an external executable. |
-| `tar.xz` | external `xz` | Strong compression; `xz` must be available on `PATH`. |
+| Format    | Implementation  | Notes                                                                           |
+| --------- | --------------- | ------------------------------------------------------------------------------- |
+| `zip`     | `yazl`          | Maximum compatibility; each file is compressed independently.                   |
+| `tar.gz`  | Node.js `zlib`  | Portable solid compression without an external executable.                      |
+| `tar.xz`  | external `xz`   | Strong compression; `xz` must be available on `PATH`.                           |
 | `tar.zst` | external `zstd` | Strong compression with fast decompression; `zstd` must be available on `PATH`. |
 
 Examples:
@@ -167,13 +167,13 @@ zip-it --profile android
 zip-it --profile none
 ```
 
-| Profile | Behavior |
-| --- | --- |
-| `auto` | Detects known architectures and combines matching rules. |
-| `node` | Uses frontend and Node ignore rules. |
-| `dotnet` | Uses C#/.NET/Visual Studio/MonoGame-friendly rules. |
-| `android` | Uses Android Studio, Gradle and Kotlin-friendly rules. |
-| `none` | Uses only common, security and IDE safety rules. |
+| Profile   | Behavior                                                 |
+| --------- | -------------------------------------------------------- |
+| `auto`    | Detects known architectures and combines matching rules. |
+| `node`    | Uses frontend and Node ignore rules.                     |
+| `dotnet`  | Uses C#/.NET/Visual Studio/MonoGame-friendly rules.      |
+| `android` | Uses Android Studio, Gradle and Kotlin-friendly rules.   |
+| `none`    | Uses only common, security and IDE safety rules.         |
 
 Multiple detected architectures are combined, for example `node+dotnet` or `dotnet+android`.
 
@@ -198,9 +198,7 @@ The configuration file remains optional. Existing version-1-style configuration 
 		"includeRelatedTests": true,
 		"includeRootFiles": true
 	},
-	"ignore": [
-		"src/**/Content/Generated/**"
-	],
+	"ignore": ["src/**/Content/Generated/**"],
 	"media": {
 		"minify": true,
 		"mode": "preserve-shape",
@@ -234,9 +232,7 @@ Targets provide repeatable archive variants without duplicating configuration fi
 		"minify": true,
 		"mode": "preserve-shape"
 	},
-	"ignore": [
-		"src/**/Content/Generated/**"
-	],
+	"ignore": ["src/**/Content/Generated/**"],
 	"defaultTarget": "full",
 	"targets": {
 		"full": {
@@ -255,10 +251,7 @@ Targets provide repeatable archive variants without duplicating configuration fi
 				"format": "tar.gz",
 				"compressionLevel": 9
 			},
-			"ignore": [
-				"benchmarks/**",
-				"templates/**"
-			]
+			"ignore": ["benchmarks/**", "templates/**"]
 		},
 		"calm-ball-2d": {
 			"archive": {
@@ -299,9 +292,7 @@ For a repository where `Assets/Source` and generator recipes are the source of t
 	"selection": {
 		"mode": "git-visible"
 	},
-	"ignore": [
-		"src/**/Content/Generated/**"
-	],
+	"ignore": ["src/**/Content/Generated/**"],
 	"media": {
 		"minify": true,
 		"mode": "preserve-shape"
@@ -325,10 +316,7 @@ For a repository where `Assets/Source` and generator recipes are the source of t
 				"format": "tar.gz",
 				"compressionLevel": 9
 			},
-			"ignore": [
-				"benchmarks/**",
-				"templates/**"
-			]
+			"ignore": ["benchmarks/**", "templates/**"]
 		}
 	}
 }
@@ -446,13 +434,13 @@ Video and audio placeholder generation uses `ffmpeg`. If `ffmpeg` is unavailable
 
 ## Console verbosity
 
-| Level | Output |
-| --- | --- |
-| `0` | Compact final summary. |
-| `1` | Progress, resolved basics and largest included files. |
-| `2` | Selection/scope diagnostics, path-length diagnostics, top-level contributors and scoped project list. |
-| `3` | Level 2 plus the complete included-file list. |
-| `dev` | Level 3 plus resolved internal options. |
+| Level | Output                                                                                                |
+| ----- | ----------------------------------------------------------------------------------------------------- |
+| `0`   | Compact final summary.                                                                                |
+| `1`   | Progress, resolved basics and largest included files.                                                 |
+| `2`   | Selection/scope diagnostics, path-length diagnostics, top-level contributors and scoped project list. |
+| `3`   | Level 2 plus the complete included-file list.                                                         |
+| `dev` | Level 3 plus resolved internal options.                                                               |
 
 Examples:
 

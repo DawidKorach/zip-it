@@ -109,7 +109,9 @@ async function addEntry(
 			}
 
 			stats.keptOriginalImageFiles++;
-			stats.warnings.push(`Could not create shape-preserving image placeholder for ${entry.relativePath}. Kept original.`);
+			stats.warnings.push(
+				`Could not create shape-preserving image placeholder for ${entry.relativePath}. Kept original.`,
+			);
 			await addOriginalFile(writer, entry, stats);
 			return;
 		}

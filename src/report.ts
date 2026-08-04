@@ -260,7 +260,9 @@ function printLargestFiles(entries: readonly FileEntry[]): void {
 function printDirectoryContributors(entries: readonly FileEntry[]): void {
 	const contributors = new Map<string, { files: number; bytes: number }>();
 	for (const entry of entries) {
-		const directory = entry.relativePath.includes("/") ? entry.relativePath.split("/", 1)[0] ?? "(root)" : "(root)";
+		const directory = entry.relativePath.includes("/")
+			? (entry.relativePath.split("/", 1)[0] ?? "(root)")
+			: "(root)";
 		const current = contributors.get(directory) ?? { files: 0, bytes: 0 };
 		current.files++;
 		current.bytes += entry.size;
@@ -283,7 +285,9 @@ function printPathDiagnostics(entries: readonly FileEntry[]): void {
 	)[0];
 	console.log(`🧾 Average archive path length: ${average.toFixed(1)} bytes`);
 	if (longest) {
-		console.log(`🧾 Longest archive path: ${Buffer.byteLength(longest.relativePath, "utf8")} bytes ${longest.relativePath}`);
+		console.log(
+			`🧾 Longest archive path: ${Buffer.byteLength(longest.relativePath, "utf8")} bytes ${longest.relativePath}`,
+		);
 	}
 }
 

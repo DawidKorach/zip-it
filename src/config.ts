@@ -54,10 +54,8 @@ export function mergeOptions(rawCliOptions: RawCliOptions, config: ZipItConfig):
 
 	const minifyMedia = rawCliOptions.minifyMedia ?? configLayer.media?.minify ?? true;
 	const mediaMode = rawCliOptions.mediaMode ?? configLayer.media?.mode ?? "tiny";
-	const keepVideoOriginals =
-		rawCliOptions.keepVideoOriginals ?? configLayer.media?.keepVideoOriginals ?? false;
-	const keepAudioOriginals =
-		rawCliOptions.keepAudioOriginals ?? configLayer.media?.keepAudioOriginals ?? false;
+	const keepVideoOriginals = rawCliOptions.keepVideoOriginals ?? configLayer.media?.keepVideoOriginals ?? false;
+	const keepAudioOriginals = rawCliOptions.keepAudioOriginals ?? configLayer.media?.keepAudioOriginals ?? false;
 	const ignorePatterns = [...(configLayer.ignore ?? []), ...rawCliOptions.ignorePatterns];
 	const verbosity = rawCliOptions.verbosity ?? 0;
 
@@ -72,9 +70,7 @@ export function mergeOptions(rawCliOptions: RawCliOptions, config: ZipItConfig):
 		archive: {
 			format: archiveFormat,
 			compressionLevel:
-				rawCliOptions.compressionLevel ??
-				configLayer.archive?.compressionLevel ??
-				DEFAULT_COMPRESSION_LEVEL,
+				rawCliOptions.compressionLevel ?? configLayer.archive?.compressionLevel ?? DEFAULT_COMPRESSION_LEVEL,
 			smallFileBufferThreshold:
 				rawCliOptions.smallFileBufferThreshold ??
 				configLayer.archive?.smallFileBufferThreshold ??
@@ -83,8 +79,7 @@ export function mergeOptions(rawCliOptions: RawCliOptions, config: ZipItConfig):
 		scope: {
 			mode: scopeMode,
 			project,
-			includeRelatedTests:
-				rawCliOptions.includeRelatedTests ?? configLayer.scope?.includeRelatedTests ?? true,
+			includeRelatedTests: rawCliOptions.includeRelatedTests ?? configLayer.scope?.includeRelatedTests ?? true,
 			includeRootFiles: rawCliOptions.includeRootFiles ?? configLayer.scope?.includeRootFiles ?? true,
 		},
 		media: {
@@ -254,7 +249,8 @@ function parseConfig(value: unknown, configPath: string): ZipItConfig {
 	}
 
 	const layer = parseConfigLayer(value, "");
-	const defaultTarget = value.defaultTarget === undefined ? undefined : readString(value.defaultTarget, "defaultTarget");
+	const defaultTarget =
+		value.defaultTarget === undefined ? undefined : readString(value.defaultTarget, "defaultTarget");
 	const targets = value.targets === undefined ? undefined : parseTargets(value.targets);
 
 	if (defaultTarget && !targets?.[defaultTarget]) {
@@ -273,7 +269,8 @@ function parseConfigLayer(value: Record<string, unknown>, prefix: string): ZipIt
 				? undefined
 				: parseRequestedProfile(readString(value.profile, field("profile"))),
 		output: value.output === undefined ? undefined : readString(value.output, field("output")),
-		selection: value.selection === undefined ? undefined : parseSelectionConfig(value.selection, field("selection")),
+		selection:
+			value.selection === undefined ? undefined : parseSelectionConfig(value.selection, field("selection")),
 		archive: value.archive === undefined ? undefined : parseArchiveConfig(value.archive, field("archive")),
 		scope: value.scope === undefined ? undefined : parseScopeConfig(value.scope, field("scope")),
 		ignore: value.ignore === undefined ? undefined : readStringArray(value.ignore, field("ignore")),
@@ -333,8 +330,7 @@ function parseScopeConfig(value: unknown, fieldName: string): ZipItConfigLayer["
 		throw new Error(`${fieldName} must be a JSON object.`);
 	}
 	return {
-		mode:
-			value.mode === undefined ? undefined : parseScopeMode(readString(value.mode, `${fieldName}.mode`)),
+		mode: value.mode === undefined ? undefined : parseScopeMode(readString(value.mode, `${fieldName}.mode`)),
 		project: value.project === undefined ? undefined : readString(value.project, `${fieldName}.project`),
 		includeRelatedTests:
 			value.includeRelatedTests === undefined
@@ -354,8 +350,7 @@ function parseMediaConfig(value: unknown, fieldName: string): ZipItConfigLayer["
 
 	return {
 		minify: value.minify === undefined ? undefined : readBoolean(value.minify, `${fieldName}.minify`),
-		mode:
-			value.mode === undefined ? undefined : parseMediaMode(readString(value.mode, `${fieldName}.mode`)),
+		mode: value.mode === undefined ? undefined : parseMediaMode(readString(value.mode, `${fieldName}.mode`)),
 		keepVideoOriginals:
 			value.keepVideoOriginals === undefined
 				? undefined

@@ -6,12 +6,7 @@ import path from "node:path";
 import { createGlobMatchers, matchesAny, toPosixPath } from "./glob.js";
 import { SECURITY_IGNORE_PATTERNS } from "./ignore-patterns.js";
 import { getFileKind } from "./media.js";
-import type {
-	EffectiveSelectionMode,
-	FileEntry,
-	ScanResult,
-	SelectionMode,
-} from "./types.js";
+import type { EffectiveSelectionMode, FileEntry, ScanResult, SelectionMode } from "./types.js";
 
 export async function scanProjectFiles(
 	root: string,
@@ -220,7 +215,10 @@ async function runGitPathList(args: readonly string[]): Promise<string[]> {
 	return result.stdout.split("\0").filter(Boolean);
 }
 
-async function runProcess(command: string, args: readonly string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+async function runProcess(
+	command: string,
+	args: readonly string[],
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
 	return await new Promise((resolve, reject) => {
 		const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
 		const stdout: Buffer[] = [];

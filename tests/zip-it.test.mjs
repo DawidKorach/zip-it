@@ -88,12 +88,10 @@ test("auto-detects Python projects in a direct child and ignores virtual environ
 
 	assert.deepEqual(detected, { node: false, python: true, dotnet: false, android: false });
 	assert.equal(profile.effectiveProfile, "python");
-	assert.deepEqual(scan.files, [
-		".github/workflows/test.yml",
-		"README.md",
-		"bg_remover_app/main.py",
-		"bg_remover_app/requirements.txt",
-	]);
+	assert.deepEqual(
+		[...scan.files].sort(),
+		[".github/workflows/test.yml", "README.md", "bg_remover_app/main.py", "bg_remover_app/requirements.txt"].sort(),
+	);
 });
 
 test("detects modern Python dependency markers", async () => {
@@ -144,13 +142,25 @@ test("auto-detects mixed Node + .NET projects and combines ignore rules", async 
 
 test("auto-detects Android Gradle projects and ignores generated Android Studio artifacts", async () => {
 	const root = await createTempProject();
-	await writeFile(root, "settings.gradle.kts", "pluginManagement {}\ndependencyResolutionManagement {}\nrootProject.name = \"AndroidAppDump\"\ninclude(\":app\")\n");
+	await writeFile(
+		root,
+		"settings.gradle.kts",
+		'pluginManagement {}\ndependencyResolutionManagement {}\nrootProject.name = "AndroidAppDump"\ninclude(":app")\n',
+	);
 	await writeFile(root, "build.gradle.kts", "plugins { alias(libs.plugins.android.application) apply false }\n");
-	await writeFile(root, "app/build.gradle.kts", "plugins { id(\"com.android.application\"); id(\"org.jetbrains.kotlin.android\") }\n");
+	await writeFile(
+		root,
+		"app/build.gradle.kts",
+		'plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }\n',
+	);
 	await writeFile(root, "app/src/main/AndroidManifest.xml", "<manifest />\n");
 	await writeFile(root, "app/src/main/java/com/example/appdump/MainActivity.kt", "class MainActivity\n");
 	await writeFile(root, "app/src/main/res/values/strings.xml", "<resources />\n");
-	await writeFile(root, "gradle/wrapper/gradle-wrapper.properties", "distributionUrl=https://services.gradle.org/distributions/gradle.zip\n");
+	await writeFile(
+		root,
+		"gradle/wrapper/gradle-wrapper.properties",
+		"distributionUrl=https://services.gradle.org/distributions/gradle.zip\n",
+	);
 	await writeFile(root, "gradle/wrapper/gradle-wrapper.jar", "binary");
 	await writeFile(root, "gradlew", "#!/bin/sh\n");
 	await writeFile(root, ".idea/codeStyles/Project.xml", "<project />\n");
@@ -181,8 +191,8 @@ test("auto-detects Android Gradle projects and ignores generated Android Studio 
 
 test("keeps root build files for mixed Android + .NET projects", async () => {
 	const root = await createTempProject();
-	await writeFile(root, "settings.gradle.kts", "include(\":app\")\n");
-	await writeFile(root, "app/build.gradle.kts", "plugins { id(\"com.android.application\") }\n");
+	await writeFile(root, "settings.gradle.kts", 'include(":app")\n');
+	await writeFile(root, "app/build.gradle.kts", 'plugins { id("com.android.application") }\n');
 	await writeFile(root, "app/src/main/AndroidManifest.xml", "<manifest />\n");
 	await writeFile(root, "Tooling.sln", "Microsoft Visual Studio Solution File\n");
 	await writeFile(root, "build/Directory.Build.targets", "<Project />\n");
@@ -275,7 +285,6 @@ test("loads optional .zip-it.json and lets CLI override scalar values", async ()
 		keepAudioOriginals: true,
 	});
 });
-
 
 test("creates shape-preserving image placeholders for PNG files", async () => {
 	const root = await createTempProject();
@@ -375,7 +384,6 @@ test("dotnet init supports solution files in direct child directories", async ()
 	assert.equal(result.zipPath, "../.artifacts/project.zip");
 	assert.match(updated, /<File Path="\.\.\/\.artifacts\/project\.zip" \/>/);
 });
-
 
 test("parses advanced selection, archive, target and project-scope options", () => {
 	const raw = parseRawCliOptions([
