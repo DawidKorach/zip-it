@@ -511,7 +511,7 @@ Options:
 --root <path>              Project root. Defaults to current working directory.
 --output <path>            Output path. Defaults to .artifacts/project.<format>.
 --target <name>            Apply a named target from .zip-it.json.
---profile <auto|node|dotnet|android|none>
+--profile <auto|node|python|dotnet|android|none>
                            Project profile. Defaults to auto.
 --selection <auto|filesystem|git-visible|git-tracked>
                            File selection strategy. Auto prefers git-visible.

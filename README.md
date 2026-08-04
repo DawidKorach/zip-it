@@ -42,7 +42,7 @@ zip-it [options]
 --root <path>              Project root. Defaults to current working directory.
 --output <path>            Output path. Defaults to .artifacts/project.<format>.
 --target <name>            Apply a named target from .zip-it.json.
---profile <auto|node|dotnet|android|none>
+--profile <auto|node|python|dotnet|android|none>
                            Project profile. Defaults to auto.
 --selection <auto|filesystem|git-visible|git-tracked>
                            File selection strategy. Auto prefers git-visible.
@@ -161,6 +161,7 @@ This is intentionally a static project-graph resolver, not a replacement for MSB
 ```bash
 zip-it --profile auto
 zip-it --profile node
+zip-it --profile python
 zip-it --profile dotnet
 zip-it --profile android
 zip-it --profile none
@@ -369,6 +370,12 @@ Security-sensitive examples:
 ```
 
 Sensitive files discovered by the active selection mode are ignored and reported as warnings.
+
+### Python
+
+The Python profile is detected from standard project markers in the archive root or one direct child directory, including `pyproject.toml`, `requirements*.txt`, `setup.py`, `setup.cfg`, `Pipfile`, Poetry/PDM/uv lock files, and Conda environment files.
+
+It ignores virtual environments, bytecode and tool caches, coverage output, package metadata, and conventional Python build artifacts such as `build/` and `dist/`. Detection does not change the archive root: repository-level documentation, GitHub workflows, tests, and other sibling directories remain included. Use `--root` explicitly when only a nested application directory should be archived.
 
 ### .NET support
 

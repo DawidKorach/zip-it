@@ -32,6 +32,12 @@ export const PROJECT_ARCHITECTURES = [
 		detect: (context) => hasCandidateFileName(context, "package.json"),
 	},
 	{
+		kind: "python",
+		displayName: "Python",
+		ignoreGroups: ["python"],
+		detect: detectPythonProject,
+	},
+	{
 		kind: "dotnet",
 		displayName: ".NET",
 		ignoreGroups: ["dotnet"],
@@ -85,6 +91,32 @@ function hasCandidateExtension(context: ProjectDetectionContext, ...extensions: 
 	const accepted = new Set(extensions);
 
 	return context.candidates.some((candidate) => accepted.has(path.extname(candidate.fileName)));
+}
+
+function detectPythonProject(context: ProjectDetectionContext): boolean {
+	const exactMarkers = new Set([
+		"pyproject.toml",
+		"setup.py",
+		"setup.cfg",
+		"pipfile",
+		"pipfile.lock",
+		"poetry.lock",
+		"pdm.lock",
+		"uv.lock",
+		"environment.yml",
+		"environment.yaml",
+	]);
+
+	return context.candidates.some((candidate) => {
+		const normalizedName = candidate.fileName.toLowerCase();
+		if (exactMarkers.has(normalizedName)) {
+			return true;
+		}
+
+		return normalizedName === "requirements.txt" ||
+			(normalizedName.startsWith("requirements-") && normalizedName.endsWith(".txt")) ||
+			(normalizedName.startsWith("requirements.") && normalizedName.endsWith(".txt"));
+	});
 }
 
 async function detectAndroidGradleProject(context: ProjectDetectionContext): Promise<boolean> {

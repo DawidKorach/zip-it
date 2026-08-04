@@ -68,8 +68,41 @@ test("auto-detects Node projects", async () => {
 
 	const { detected, profile } = await scanWithProfile(root);
 
-	assert.deepEqual(detected, { node: true, dotnet: false, android: false });
+	assert.deepEqual(detected, { node: true, python: false, dotnet: false, android: false });
 	assert.equal(profile.effectiveProfile, "node");
+});
+
+test("auto-detects Python projects in a direct child and ignores virtual environments and caches", async () => {
+	const root = await createTempProject();
+	await writeFile(root, "README.md", "# Repository\n");
+	await writeFile(root, ".github/workflows/test.yml", "name: test\n");
+	await writeFile(root, "bg_remover_app/requirements.txt", "Pillow\n");
+	await writeFile(root, "bg_remover_app/main.py", "print('hello')\n");
+	await writeFile(root, "bg_remover_app/.venv/Lib/site-packages/PIL/__init__.py", "generated");
+	await writeFile(root, "bg_remover_app/__pycache__/main.cpython-314.pyc", "bytecode");
+	await writeFile(root, "bg_remover_app/.pytest_cache/v/cache/nodeids", "cache");
+	await writeFile(root, "bg_remover_app/build/app/app.exe", "generated");
+	await writeFile(root, "bg_remover_app/dist/app.exe", "generated");
+
+	const { detected, profile, scan } = await scanWithProfile(root);
+
+	assert.deepEqual(detected, { node: false, python: true, dotnet: false, android: false });
+	assert.equal(profile.effectiveProfile, "python");
+	assert.deepEqual(scan.files, [
+		".github/workflows/test.yml",
+		"README.md",
+		"bg_remover_app/main.py",
+		"bg_remover_app/requirements.txt",
+	]);
+});
+
+test("detects modern Python dependency markers", async () => {
+	for (const marker of ["pyproject.toml", "Pipfile", "poetry.lock", "pdm.lock", "uv.lock", "environment.yml"]) {
+		const root = await createTempProject();
+		await writeFile(root, marker, "test\n");
+		const detected = await detectProjectKinds(root);
+		assert.equal(detected.python, true, marker);
+	}
 });
 
 test("auto-detects .NET projects and ignores bin/obj while keeping source files", async () => {
@@ -83,7 +116,7 @@ test("auto-detects .NET projects and ignores bin/obj while keeping source files"
 
 	const { detected, profile, scan } = await scanWithProfile(root, "dotnet");
 
-	assert.deepEqual(detected, { node: false, dotnet: true, android: false });
+	assert.deepEqual(detected, { node: false, python: false, dotnet: true, android: false });
 	assert.equal(profile.effectiveProfile, "dotnet");
 	assert.deepEqual(scan.files, [
 		"build/Directory.Build.targets",
@@ -104,7 +137,7 @@ test("auto-detects mixed Node + .NET projects and combines ignore rules", async 
 
 	const { detected, profile, scan } = await scanWithProfile(root);
 
-	assert.deepEqual(detected, { node: true, dotnet: true, android: false });
+	assert.deepEqual(detected, { node: true, python: false, dotnet: true, android: false });
 	assert.equal(profile.effectiveProfile, "node+dotnet");
 	assert.deepEqual(scan.files, ["Game.sln", "package.json", "src/Game/Game.csproj"]);
 });
@@ -130,7 +163,7 @@ test("auto-detects Android Gradle projects and ignores generated Android Studio 
 
 	const { detected, profile, scan } = await scanWithProfile(root);
 
-	assert.deepEqual(detected, { node: false, dotnet: false, android: true });
+	assert.deepEqual(detected, { node: false, python: false, dotnet: false, android: true });
 	assert.equal(profile.effectiveProfile, "android");
 	assert(scan.files.includes("settings.gradle.kts"));
 	assert(scan.files.includes("app/build.gradle.kts"));
@@ -157,7 +190,7 @@ test("keeps root build files for mixed Android + .NET projects", async () => {
 
 	const { detected, profile, scan } = await scanWithProfile(root);
 
-	assert.deepEqual(detected, { node: false, dotnet: true, android: true });
+	assert.deepEqual(detected, { node: false, python: false, dotnet: true, android: true });
 	assert.equal(profile.effectiveProfile, "dotnet+android");
 	assert(scan.files.includes("build/Directory.Build.targets"));
 	assert(!scan.files.includes("app/build/generated/source.txt"));
