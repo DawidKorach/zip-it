@@ -70,15 +70,16 @@ export function printStartReport(options: CliOptions, profile: ProfileResolution
 
 	console.log(`📁 Root: ${options.root}`);
 	console.log(`📦 Output: ${options.output}`);
-	console.log(`🗜️ Archive: ${options.archive.format}, level ${options.archive.compressionLevel}`);
-	console.log(`🧩 Profile: ${profile.effectiveProfile} (requested: ${profile.requestedProfile})`);
-	console.log(`🗂️ Selection: ${options.selection.mode}`);
-	console.log(`🎯 Scope: ${formatScope(options)}`);
 	if (options.target) {
 		console.log(`🎛️ Target: ${options.target}`);
 	}
 
 	if (options.verbosity >= 2) {
+		console.log(`🗜️ Requested archive: ${options.archive.format}, level ${options.archive.compressionLevel}`);
+		console.log(`🧩 Resolved profile: ${profile.effectiveProfile} (requested: ${profile.requestedProfile})`);
+		console.log(`🗂️ Requested selection: ${options.selection.mode}`);
+		console.log(`🎯 Requested scope: ${formatScope(options)}`);
+		console.log(`🖼️ Media mode: ${formatMediaMode(options)}`);
 		const detectedText = Object.entries(profile.detected)
 			.map(([kind, detected]) => `${kind}=${detected ? "yes" : "no"}`)
 			.join(", ");
@@ -87,7 +88,6 @@ export function printStartReport(options: CliOptions, profile: ProfileResolution
 		console.log(`🧠 ZIP small-file buffer: ${formatBytes(options.archive.smallFileBufferThreshold)}`);
 	}
 
-	console.log(`🖼️ Media mode: ${formatMediaMode(options)}`);
 	if (options.verbosity >= 4) {
 		console.log("🛠️ Dev options:");
 		console.log(formatJson({ options, profile }));
@@ -109,53 +109,40 @@ export function printDryRunReport(
 		...dryRun.warnings,
 	];
 
-	if (options.verbosity === 0) {
-		console.log(
-			`🧪 Dry run: ${entries.length} files would be included, ${formatIgnoredCount(scan.ignoredFiles, scan.ignoredDirectories)} ignored.`,
-		);
-		console.log(`🧩 Profile: ${profile.effectiveProfile}`);
-		console.log(`🗂️ Selection: ${scan.selectionMode}`);
-		console.log(`🎯 Scope: ${formatScopeResult(scope)}`);
-		console.log(`🗜️ Archive: ${options.archive.format}`);
-		console.log(`🖼️ Media: ${formatDryRunMediaSummary(options, dryRun)}`);
-		printWarnings(warnings, options.verbosity);
-		return;
-	}
-
-	console.log("🧪 Dry run only. No archive was created.");
+	console.log(
+		options.verbosity === 0
+			? `🧪 Dry run: ${entries.length} files would be included; no archive created.`
+			: "🧪 Dry run complete. No archive was created.",
+	);
 	console.log(`🧩 Profile: ${profile.effectiveProfile}`);
 	console.log(`🗂️ Selection: ${scan.selectionMode}`);
-	console.log(`🎯 Scope: ${formatScopeResult(scope)}`);
-	console.log(`🗜️ Archive format: ${options.archive.format}`);
-	console.log(`📄 Included files: ${entries.length}`);
-	console.log(`🚫 Ignore-pattern files: ${scan.ignoredFiles}`);
-	console.log(`🚫 Ignore-pattern directories: ${scan.ignoredDirectories}`);
-	console.log(`🙈 Git-ignored files: ${scan.gitIgnoredFiles}`);
-	console.log(`🎯 Files excluded by scope: ${scope.excludedFiles}`);
-	console.log(`🖼️ Media mode: ${formatMediaMode(options)}`);
-	console.log(`🖼️ Images to replace: ${dryRun.mediaReplacementPlan.images}`);
-	console.log(`🎞️ Videos to replace: ${dryRun.mediaReplacementPlan.videos}`);
-	console.log(`🔇 Audio files to replace: ${dryRun.mediaReplacementPlan.audio}`);
-
-	if (dryRun.mediaReplacementPlan.keptVideos > 0 || options.verbosity >= 2) {
-		console.log(`🎞️ Video files kept original: ${dryRun.mediaReplacementPlan.keptVideos}`);
+	if (scope.mode !== "full" || options.verbosity >= 1) {
+		console.log(`🎯 Scope: ${formatScopeResult(scope)}`);
 	}
-	if (dryRun.mediaReplacementPlan.keptAudio > 0 || options.verbosity >= 2) {
-		console.log(`🔊 Audio files kept original: ${dryRun.mediaReplacementPlan.keptAudio}`);
-	}
+	console.log(`🗜️ Archive: ${options.archive.format}, level ${options.archive.compressionLevel}`);
+	console.log(
+		`📄 Files: ${entries.length} included, ${formatIgnoredCount(scan.ignoredFiles, scan.ignoredDirectories)} ignored`,
+	);
+	console.log(`🖼️ Media: ${formatDryRunMediaSummary(options, dryRun)}`);
 
-	printLargestFiles(dryRun.largestFiles);
 	if (options.verbosity >= 2) {
+		console.log(`🚫 Ignore-pattern files: ${scan.ignoredFiles}`);
+		console.log(`🚫 Ignore-pattern directories: ${scan.ignoredDirectories}`);
+		console.log(`🙈 Git-ignored files: ${scan.gitIgnoredFiles}`);
+		console.log(`🎯 Files excluded by scope: ${scope.excludedFiles}`);
+		console.log(`🖼️ Images to replace: ${dryRun.mediaReplacementPlan.images}`);
+		console.log(`🎞️ Videos to replace: ${dryRun.mediaReplacementPlan.videos}`);
+		console.log(`🔇 Audio files to replace: ${dryRun.mediaReplacementPlan.audio}`);
+		console.log(`🎞️ Video files kept original: ${dryRun.mediaReplacementPlan.keptVideos}`);
+		console.log(`🔊 Audio files kept original: ${dryRun.mediaReplacementPlan.keptAudio}`);
+		printLargestFiles(dryRun.largestFiles);
 		printPathDiagnostics(entries);
 		printDirectoryContributors(entries);
 		printScopedProjects(scope);
 	}
+
 	printIncludedFiles(entries, options.verbosity);
 	printWarnings(warnings, options.verbosity);
-
-	if (options.media.minify === false) {
-		console.log("🧰 Media minimization: disabled");
-	}
 }
 
 export function printZipReport(
@@ -175,63 +162,53 @@ export function printZipReport(
 	];
 	const archiveName = archiveDisplayName(options.archive.format);
 
+	console.log(`✅ ${archiveName} created: ${output}`);
+	console.log(`🔐 SHA-256: ${stats.archiveSha256}`);
+
 	if (options.verbosity === 0) {
-		console.log(`✅ ${archiveName} created: ${output}`);
-		console.log(`🧩 Profile: ${profile.effectiveProfile}`);
-		console.log(`🗂️ Selection: ${scan.selectionMode}`);
-		console.log(
-			`📄 Files: ${stats.includedFiles} included, ${formatIgnoredCount(stats.ignoredFiles, stats.ignoredDirectories)} ignored`,
-		);
-		console.log(
-			`📉 Input: ${formatBytes(stats.originalTotalSize)} → ${formatBytes(stats.archiveInputSize)} → ${formatBytes(stats.archiveSize)}`,
-		);
-		console.log(`🖼️ Media: ${formatZipMediaSummary(stats)}`);
+		console.log(`🧩 Profile: ${profile.effectiveProfile} · Selection: ${scan.selectionMode}`);
+		if (scope.mode !== "full") {
+			console.log(`🎯 Scope: ${formatScopeResult(scope)}`);
+		}
+		console.log(`📄 Files: ${formatArchiveFileSummary(stats)}`);
+		console.log(`📉 Size: ${formatArchiveSizeSummary(stats)}`);
+		console.log(`🖼️ Media: ${formatZipMediaSummary(options, stats)}`);
 		printWarnings(warnings, options.verbosity);
 		return;
 	}
 
-	console.log(`✅ ${archiveName} created: ${output}`);
 	console.log(`🧩 Profile: ${profile.effectiveProfile}`);
 	console.log(`🗂️ Selection: ${scan.selectionMode}`);
 	console.log(`🎯 Scope: ${formatScopeResult(scope)}`);
-	console.log(`🗜️ Archive format: ${options.archive.format}`);
-	console.log(`📦 Original files: ${formatBytes(stats.originalTotalSize)}`);
-	console.log(`📉 After media transformation: ${formatBytes(stats.archiveInputSize)}`);
-	if (stats.compressedPayloadSize !== undefined) {
-		console.log(`🧱 Compressed file payload: ${formatBytes(stats.compressedPayloadSize)}`);
-	}
-	if (stats.archiveMetadataSize !== undefined) {
-		console.log(`🧾 ZIP metadata and framing: ${formatBytes(stats.archiveMetadataSize)}`);
-	}
-	console.log(`🗜️ Final archive: ${formatBytes(stats.archiveSize)}`);
-	console.log(`📄 Included files: ${stats.includedFiles}`);
-	console.log(`🚫 Ignore-pattern files: ${stats.ignoredFiles}`);
-	console.log(`🚫 Ignore-pattern directories: ${stats.ignoredDirectories}`);
-	console.log(`🙈 Git-ignored files: ${stats.gitIgnoredFiles}`);
-	console.log(`🎯 Files excluded by scope: ${stats.scopeExcludedFiles}`);
-	console.log(`🖼️ Replaced image files: ${stats.replacedImageFiles}`);
+	console.log(`🗜️ Archive: ${options.archive.format}, level ${options.archive.compressionLevel}`);
+	console.log(`📄 Files: ${formatArchiveFileSummary(stats)}`);
+	console.log(`📉 Size: ${formatArchiveSizeSummary(stats)}`);
+	console.log(`🖼️ Media: ${formatZipMediaSummary(options, stats)}`);
 
-	if (stats.preservedShapeImageFiles > 0 || options.verbosity >= 2) {
-		console.log(`📐 Shape-preserving image placeholders: ${stats.preservedShapeImageFiles}`);
-	}
-	if (stats.keptOriginalImageFiles > 0 || options.verbosity >= 2) {
-		console.log(`🖼️ Image files kept original: ${stats.keptOriginalImageFiles}`);
-	}
-	console.log(`🎞️ Replaced video files: ${stats.replacedVideoFiles}`);
-	console.log(`🔇 Replaced audio files: ${stats.replacedAudioFiles}`);
-	if (stats.keptOriginalVideoFiles > 0 || options.verbosity >= 2) {
-		console.log(`🎞️ Video files kept original: ${stats.keptOriginalVideoFiles}`);
-	}
-	if (stats.keptOriginalAudioFiles > 0 || options.verbosity >= 2) {
-		console.log(`🔊 Audio files kept original: ${stats.keptOriginalAudioFiles}`);
-	}
-
-	printLargestFiles([...entries].sort((left, right) => right.size - left.size).slice(0, 10));
 	if (options.verbosity >= 2) {
+		if (stats.compressedPayloadSize !== undefined) {
+			console.log(`🧱 Compressed file payload: ${formatBytes(stats.compressedPayloadSize)}`);
+		}
+		if (stats.archiveMetadataSize !== undefined) {
+			console.log(`🧾 ZIP metadata and framing: ${formatBytes(stats.archiveMetadataSize)}`);
+		}
+		console.log(`🚫 Ignore-pattern files: ${stats.ignoredFiles}`);
+		console.log(`🚫 Ignore-pattern directories: ${stats.ignoredDirectories}`);
+		console.log(`🙈 Git-ignored files: ${stats.gitIgnoredFiles}`);
+		console.log(`🎯 Files excluded by scope: ${stats.scopeExcludedFiles}`);
+		console.log(`🖼️ Replaced image files: ${stats.replacedImageFiles}`);
+		console.log(`📐 Shape-preserving image placeholders: ${stats.preservedShapeImageFiles}`);
+		console.log(`🖼️ Image files kept original: ${stats.keptOriginalImageFiles}`);
+		console.log(`🎞️ Replaced video files: ${stats.replacedVideoFiles}`);
+		console.log(`🔇 Replaced audio files: ${stats.replacedAudioFiles}`);
+		console.log(`🎞️ Video files kept original: ${stats.keptOriginalVideoFiles}`);
+		console.log(`🔊 Audio files kept original: ${stats.keptOriginalAudioFiles}`);
+		printLargestFiles([...entries].sort((left, right) => right.size - left.size).slice(0, 10));
 		printPathDiagnostics(entries);
 		printDirectoryContributors(entries);
 		printScopedProjects(scope);
 	}
+
 	printIncludedFiles(entries, options.verbosity);
 	printWarnings(warnings, options.verbosity);
 }
@@ -318,14 +295,11 @@ function printIncludedFiles(entries: readonly FileEntry[], verbosity: VerbosityL
 function printWarnings(warnings: readonly string[], verbosity: VerbosityLevel): void {
 	const uniqueWarnings = [...new Set(warnings)];
 	if (uniqueWarnings.length === 0) {
-		if (verbosity >= 1) {
-			console.log("⚠️ Warnings: 0");
-		}
 		return;
 	}
 	console.log(`⚠️ Warnings: ${uniqueWarnings.length}`);
 	if (verbosity === 0) {
-		console.log("  Use -v 1 to show warning details.");
+		console.log("  Use -v to show warning details.");
 		return;
 	}
 	for (const warning of uniqueWarnings) {
@@ -363,11 +337,35 @@ function formatDryRunMediaSummary(options: CliOptions, dryRun: DryRunReport): st
 	if (!options.media.minify) {
 		return "disabled";
 	}
-	return `${formatMediaMode(options)}, replace ${dryRun.mediaReplacementPlan.images} images, ${dryRun.mediaReplacementPlan.videos} videos, ${dryRun.mediaReplacementPlan.audio} audio`;
+	const plan = dryRun.mediaReplacementPlan;
+	if (plan.images === 0 && plan.videos === 0 && plan.audio === 0) {
+		return `${formatMediaMode(options)}; no media would be replaced`;
+	}
+	return `${formatMediaMode(options)}; replace ${plan.images} images, ${plan.videos} videos, ${plan.audio} audio`;
 }
 
-function formatZipMediaSummary(stats: ZipStats): string {
-	return `${stats.replacedImageFiles} images, ${stats.replacedVideoFiles} videos, ${stats.replacedAudioFiles} audio replaced`;
+function formatArchiveFileSummary(stats: ZipStats): string {
+	return `${stats.includedFiles} included, ${formatIgnoredCount(stats.ignoredFiles, stats.ignoredDirectories)} ignored`;
+}
+
+function formatArchiveSizeSummary(stats: ZipStats): string {
+	return (
+		`${formatBytes(stats.originalTotalSize)} source → ` +
+		`${formatBytes(stats.archiveInputSize)} transformed → ${formatBytes(stats.archiveSize)} archive`
+	);
+}
+
+function formatZipMediaSummary(options: CliOptions, stats: ZipStats): string {
+	if (!options.media.minify) {
+		return "disabled";
+	}
+	if (stats.replacedImageFiles === 0 && stats.replacedVideoFiles === 0 && stats.replacedAudioFiles === 0) {
+		return `${formatMediaMode(options)}; no media replaced`;
+	}
+	return (
+		`${formatMediaMode(options)}; ${stats.replacedImageFiles} images, ` +
+		`${stats.replacedVideoFiles} videos, ${stats.replacedAudioFiles} audio replaced`
+	);
 }
 
 function formatJson(value: unknown): string {

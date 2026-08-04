@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -512,6 +513,38 @@ test("dotnet project scope includes transitive references and related tests", as
 	assert(!scope.files.includes("src/Other/Other.cs"));
 });
 
+test("reports the final archive SHA-256 in compact output", async () => {
+	const root = await createTempProject();
+	await writeFile(root, "package.json", "{}\n");
+	await writeFile(root, "src/index.ts", "export const value = 1;\n");
+	const output = path.join(root, ".artifacts/project.tar.gz");
+
+	const { stdout } = await execFileAsync(
+		process.execPath,
+		[
+			"dist/cli.js",
+			"--root",
+			root,
+			"--output",
+			output,
+			"--profile",
+			"none",
+			"--selection",
+			"filesystem",
+			"--format",
+			"tar.gz",
+			"--no-media-minify",
+		],
+		{ cwd: process.cwd() },
+	);
+
+	const archive = await fs.readFile(output);
+	const expectedSha256 = createHash("sha256").update(archive).digest("hex");
+	assert(stdout.includes(`🔐 SHA-256: ${expectedSha256}`));
+	assert(!stdout.includes("Warnings: 0"));
+	assert(!stdout.includes("Largest included files"));
+});
+
 test("creates a portable tar.gz archive with deterministic TAR timestamps", async () => {
 	const root = await createTempProject();
 	await writeFile(root, "package.json", "{}\n");
@@ -545,6 +578,12 @@ test("creates a portable tar.gz archive with deterministic TAR timestamps", asyn
 	);
 	assert(tarEntries.every((entry) => entry.mtime === 315532800));
 	assert.equal(stats.archiveSize, (await fs.stat(output)).size);
+	assert.equal(
+		stats.archiveSha256,
+		createHash("sha256")
+			.update(await fs.readFile(output))
+			.digest("hex"),
+	);
 });
 
 function readTarEntries(buffer) {

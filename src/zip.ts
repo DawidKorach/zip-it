@@ -1,5 +1,6 @@
 // src/zip.ts
 
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { createArchiveWriter } from "./archive-writer.js";
@@ -28,6 +29,7 @@ export function createInitialStats(
 		originalTotalSize: 0,
 		archiveInputSize: 0,
 		archiveSize: 0,
+		archiveSha256: "",
 		includedFiles,
 		ignoredFiles,
 		ignoredDirectories,
@@ -75,6 +77,7 @@ export async function createArchive(
 			? await inspectZipArchive(options.output)
 			: { archiveSize: (await fs.promises.stat(options.output)).size };
 	stats.archiveSize = diagnostics.archiveSize;
+	stats.archiveSha256 = await calculateFileSha256(options.output);
 	stats.compressedPayloadSize = diagnostics.compressedPayloadSize;
 	stats.archiveMetadataSize = diagnostics.archiveMetadataSize;
 	return stats;
@@ -189,4 +192,15 @@ function addFfmpegWarnings(
 	) {
 		stats.warnings.push("ffmpeg not found. Audio files were kept original.");
 	}
+}
+
+async function calculateFileSha256(filePath: string): Promise<string> {
+	const hash = createHash("sha256");
+	const stream = fs.createReadStream(filePath);
+
+	for await (const chunk of stream) {
+		hash.update(chunk);
+	}
+
+	return hash.digest("hex");
 }

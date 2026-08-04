@@ -117,6 +117,8 @@ zip-it --format tar.zst --compression-level 9
 
 TAR archives use deterministic file timestamps. ZIP entries use a deterministic DOS timestamp and disable the additional universal timestamp field. Original files no larger than `smallFileBufferThreshold` are added to ZIP from a buffer, avoiding data descriptors for the common source-file case.
 
+Every created archive reports the SHA-256 checksum of the final archive file. This allows the package to be verified after copying, uploading or attaching it to an issue.
+
 ZIP reports additionally show:
 
 - transformed input bytes,
@@ -434,13 +436,13 @@ Video and audio placeholder generation uses `ffmpeg`. If `ffmpeg` is unavailable
 
 ## Console verbosity
 
-| Level | Output                                                                                                |
-| ----- | ----------------------------------------------------------------------------------------------------- |
-| `0`   | Compact final summary.                                                                                |
-| `1`   | Progress, resolved basics and largest included files.                                                 |
-| `2`   | Selection/scope diagnostics, path-length diagnostics, top-level contributors and scoped project list. |
-| `3`   | Level 2 plus the complete included-file list.                                                         |
-| `dev` | Level 3 plus resolved internal options.                                                               |
+| Level | Output                                                                                                 |
+| ----- | ------------------------------------------------------------------------------------------------------ |
+| `0`   | Compact final summary.                                                                                 |
+| `1`   | Progress and a readable final report with resolved profile, selection, scope, sizes and media summary. |
+| `2`   | Level 1 plus archive internals, counters, largest files, path diagnostics and contributors.            |
+| `3`   | Level 2 plus the complete included-file list.                                                          |
+| `dev` | Level 3 plus resolved internal options.                                                                |
 
 Examples:
 

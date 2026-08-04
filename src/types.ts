@@ -161,6 +161,7 @@ export type ZipStats = {
 	originalTotalSize: number;
 	archiveInputSize: number;
 	archiveSize: number;
+	archiveSha256: string;
 	compressedPayloadSize?: number;
 	archiveMetadataSize?: number;
 	includedFiles: number;
