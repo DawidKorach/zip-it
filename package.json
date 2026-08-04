@@ -1,7 +1,7 @@
 {
 	"name": "@da-core/zip-it",
-	"version": "1.4.0",
-	"description": "Create lightweight project ZIP archives with minimized media placeholders.",
+	"version": "2.0.0",
+	"description": "Create lightweight project archives with Git-aware selection, .NET project scoping and minimized media placeholders.",
 	"type": "module",
 	"license": "MIT",
 	"bin": {
@@ -23,7 +23,6 @@
 		"test": "npm run build && node --test tests/*.test.mjs"
 	},
 	"dependencies": {
-		"fast-glob": "^3.3.3",
 		"yazl": "^3.3.1"
 	},
 	"devDependencies": {

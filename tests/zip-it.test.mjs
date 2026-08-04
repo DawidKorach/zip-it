@@ -5,11 +5,14 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { test } from "node:test";
+import { gunzipSync } from "node:zlib";
 import { mergeOptions, parseRawCliOptions, readProjectConfig } from "../dist/config.js";
 import { getIgnorePatternsForGroups } from "../dist/ignore-patterns.js";
 import { createShapePreservingImagePlaceholder, getFileKind } from "../dist/media.js";
 import { detectProjectKinds, resolveProfile } from "../dist/profile.js";
-import { scanProjectFiles } from "../dist/scanner.js";
+import { applyProjectScope } from "../dist/project-scope.js";
+import { buildFileEntries, scanProjectFiles } from "../dist/scanner.js";
+import { createArchive, createInitialStats } from "../dist/zip.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -339,3 +342,198 @@ test("dotnet init supports solution files in direct child directories", async ()
 	assert.equal(result.zipPath, "../.artifacts/project.zip");
 	assert.match(updated, /<File Path="\.\.\/\.artifacts\/project\.zip" \/>/);
 });
+
+
+test("parses advanced selection, archive, target and project-scope options", () => {
+	const raw = parseRawCliOptions([
+		"--target",
+		"review",
+		"--selection",
+		"git-tracked",
+		"--format",
+		"tar.zst",
+		"--compression-level",
+		"9",
+		"--small-file-buffer-threshold",
+		"4096",
+		"--project",
+		"src/App/App.csproj",
+		"--no-related-tests",
+		"--no-root-files",
+	]);
+
+	assert.equal(raw.target, "review");
+	assert.equal(raw.selectionMode, "git-tracked");
+	assert.equal(raw.archiveFormat, "tar.zst");
+	assert.equal(raw.compressionLevel, 9);
+	assert.equal(raw.smallFileBufferThreshold, 4096);
+	assert.equal(raw.project, "src/App/App.csproj");
+	assert.equal(raw.includeRelatedTests, false);
+	assert.equal(raw.includeRootFiles, false);
+});
+
+test("merges named targets and derives the output extension from the archive format", async () => {
+	const root = await createTempProject();
+	await writeFile(
+		root,
+		".zip-it.json",
+		JSON.stringify({
+			version: 2,
+			profile: "dotnet",
+			ignore: ["base/**"],
+			defaultTarget: "review",
+			targets: {
+				review: {
+					selection: { mode: "git-visible" },
+					archive: { format: "tar.gz", compressionLevel: 9 },
+					ignore: ["generated/**"],
+					media: { mode: "preserve-shape" },
+				},
+			},
+		}),
+	);
+
+	const config = await readProjectConfig(root);
+	const options = mergeOptions(parseRawCliOptions(["--root", root]), config);
+
+	assert.equal(options.target, "review");
+	assert.equal(options.output, path.join(root, ".artifacts/project.tar.gz"));
+	assert.equal(options.archive.format, "tar.gz");
+	assert.equal(options.archive.compressionLevel, 9);
+	assert.equal(options.selection.mode, "git-visible");
+	assert.equal(options.media.mode, "preserve-shape");
+	assert.deepEqual(options.ignorePatterns, ["base/**", "generated/**"]);
+});
+
+test("git-visible includes untracked visible files and excludes Git-ignored files", async () => {
+	const root = await createTempProject();
+	await execFileAsync("git", ["init", "-q"], { cwd: root });
+	await execFileAsync("git", ["config", "user.email", "zip-it-tests@example.invalid"], { cwd: root });
+	await execFileAsync("git", ["config", "user.name", "zip-it tests"], { cwd: root });
+	await writeFile(root, ".gitignore", "ignored.txt\n");
+	await writeFile(root, "tracked.txt", "tracked\n");
+	await execFileAsync("git", ["add", ".gitignore", "tracked.txt"], { cwd: root });
+	await execFileAsync("git", ["commit", "-qm", "initial"], { cwd: root });
+	await writeFile(root, "visible-untracked.txt", "visible\n");
+	await writeFile(root, "ignored.txt", "ignored\n");
+
+	const visible = await scanProjectFiles(root, [], "git-visible");
+	const tracked = await scanProjectFiles(root, [], "git-tracked");
+
+	assert.equal(visible.selectionMode, "git-visible");
+	assert(visible.files.includes("tracked.txt"));
+	assert(visible.files.includes("visible-untracked.txt"));
+	assert(!visible.files.includes("ignored.txt"));
+	assert.equal(visible.gitIgnoredFiles, 1);
+	assert(tracked.files.includes("tracked.txt"));
+	assert(!tracked.files.includes("visible-untracked.txt"));
+});
+
+test("dotnet project scope includes transitive references and related tests", async () => {
+	const root = await createTempProject();
+	await writeFile(
+		root,
+		"src/App/App.csproj",
+		'<Project><ItemGroup><ProjectReference Include="../Core/Core.csproj" /></ItemGroup></Project>',
+	);
+	await writeFile(root, "src/App/App.cs", "class App {}\n");
+	await writeFile(root, "src/Core/Core.csproj", "<Project />\n");
+	await writeFile(root, "src/Core/Core.cs", "class Core {}\n");
+	await writeFile(
+		root,
+		"tests/App.Tests/App.Tests.csproj",
+		'<Project><PropertyGroup><IsTestProject>true</IsTestProject></PropertyGroup><ItemGroup><ProjectReference Include="../../src/App/App.csproj" /></ItemGroup></Project>',
+	);
+	await writeFile(root, "tests/App.Tests/AppTests.cs", "class AppTests {}\n");
+	await writeFile(root, "src/Other/Other.csproj", "<Project />\n");
+	await writeFile(root, "src/Other/Other.cs", "class Other {}\n");
+	await writeFile(root, "Directory.Build.props", "<Project />\n");
+	await writeFile(root, "global.json", "{}\n");
+
+	const scan = await scanProjectFiles(root, [], "filesystem");
+	const scope = await applyProjectScope(root, scan.files, {
+		mode: "dotnet-project",
+		project: "src/App/App.csproj",
+		includeRelatedTests: true,
+		includeRootFiles: true,
+	});
+
+	assert.deepEqual(scope.projects, [
+		"src/App/App.csproj",
+		"src/Core/Core.csproj",
+		"tests/App.Tests/App.Tests.csproj",
+	]);
+	assert(scope.files.includes("src/App/App.cs"));
+	assert(scope.files.includes("src/Core/Core.cs"));
+	assert(scope.files.includes("tests/App.Tests/AppTests.cs"));
+	assert(scope.files.includes("Directory.Build.props"));
+	assert(scope.files.includes("global.json"));
+	assert(!scope.files.includes("src/Other/Other.cs"));
+});
+
+test("creates a portable tar.gz archive with deterministic TAR timestamps", async () => {
+	const root = await createTempProject();
+	await writeFile(root, "package.json", "{}\n");
+	await writeFile(root, "src/index.ts", "export const value = 1;\n");
+	const output = path.join(root, ".artifacts/project.tar.gz");
+	const options = mergeOptions(
+		parseRawCliOptions([
+			"--root",
+			root,
+			"--output",
+			output,
+			"--selection",
+			"filesystem",
+			"--format",
+			"tar.gz",
+			"--no-media-minify",
+		]),
+		{},
+	);
+	const scan = await scanProjectFiles(root, [], "filesystem");
+	const entries = await buildFileEntries(root, scan.files);
+	const stats = createInitialStats(entries.length, 0, 0);
+	await fs.mkdir(path.dirname(output), { recursive: true });
+	await createArchive(entries, options, stats);
+
+	const tarBuffer = gunzipSync(await fs.readFile(output));
+	const tarEntries = readTarEntries(tarBuffer);
+	assert.deepEqual(
+		tarEntries.map((entry) => entry.path),
+		["package.json", "src/index.ts"],
+	);
+	assert(tarEntries.every((entry) => entry.mtime === 315532800));
+	assert.equal(stats.archiveSize, (await fs.stat(output)).size);
+});
+
+function readTarEntries(buffer) {
+	const entries = [];
+	for (let offset = 0; offset + 512 <= buffer.length; ) {
+		const header = buffer.subarray(offset, offset + 512);
+		if (header.every((byte) => byte === 0)) {
+			break;
+		}
+		const name = readTarString(header, 0, 100);
+		const prefix = readTarString(header, 345, 155);
+		const size = readTarOctal(header, 124, 12);
+		const mtime = readTarOctal(header, 136, 12);
+		const type = readTarString(header, 156, 1) || "0";
+		const entryPath = prefix ? `${prefix}/${name}` : name;
+		if (type === "0") {
+			entries.push({ path: entryPath, size, mtime });
+		}
+		offset += 512 + Math.ceil(size / 512) * 512;
+	}
+	return entries;
+}
+
+function readTarString(buffer, offset, length) {
+	const end = buffer.indexOf(0, offset);
+	const boundedEnd = end >= offset && end < offset + length ? end : offset + length;
+	return buffer.toString("utf8", offset, boundedEnd);
+}
+
+function readTarOctal(buffer, offset, length) {
+	const value = readTarString(buffer, offset, length).trim();
+	return value ? Number.parseInt(value, 8) : 0;
+}

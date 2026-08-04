@@ -4,9 +4,10 @@ import { pathToFileURL } from "node:url";
 import { mergeOptions, parseRawCliOptions, readProjectConfig } from "./config.js";
 import { getIgnorePatternsForGroups } from "./ignore-patterns.js";
 import { detectProjectKinds, resolveProfile } from "./profile.js";
+import { applyProjectScope } from "./project-scope.js";
 import { buildDryRunReport, printDryRunReport, printProgress, printStartReport, printZipReport } from "./report.js";
 import { buildFileEntries, scanProjectFiles } from "./scanner.js";
-import { createInitialStats, createZip, ensureOutputDir } from "./zip.js";
+import { createArchive, createInitialStats, ensureOutputDir } from "./zip.js";
 
 export async function main(argv = process.argv.slice(2)): Promise<void> {
 	const rawCliOptions = parseRawCliOptions(argv);
@@ -20,29 +21,28 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
 	printStartReport(options, profile);
 	printProgress("🔍 Collecting files...", options.verbosity);
 
-	const scanResult = await scanProjectFiles(options.root, ignorePatterns);
-	const entries = await buildFileEntries(options.root, scanResult.files);
+	const scanResult = await scanProjectFiles(options.root, ignorePatterns, options.selection.mode);
+	const scopeResult = await applyProjectScope(options.root, scanResult.files, options.scope);
+	const entries = await buildFileEntries(options.root, scopeResult.files);
 
 	if (options.dryRun) {
 		const dryRun = await buildDryRunReport(entries, options);
-		printDryRunReport(
-			options,
-			profile,
-			entries,
-			scanResult.ignoredFiles,
-			scanResult.ignoredDirectories,
-			scanResult.sensitiveFiles,
-			dryRun,
-		);
+		printDryRunReport(options, profile, entries, scanResult, scopeResult, dryRun);
 		return;
 	}
 
 	await ensureOutputDir(options.output);
-	printProgress("📦 Creating ZIP...", options.verbosity);
+	printProgress(`📦 Creating ${options.archive.format} archive...`, options.verbosity);
 
-	const stats = createInitialStats(entries.length, scanResult.ignoredFiles, scanResult.ignoredDirectories);
-	await createZip(entries, options, stats);
-	printZipReport(options.output, profile, stats, scanResult.sensitiveFiles, entries, options);
+	const stats = createInitialStats(
+		entries.length,
+		scanResult.ignoredFiles,
+		scanResult.ignoredDirectories,
+		scanResult.gitIgnoredFiles,
+		scopeResult.excludedFiles,
+	);
+	await createArchive(entries, options, stats);
+	printZipReport(options.output, profile, stats, scanResult, scopeResult, entries, options);
 }
 
 function isDirectExecution(): boolean {
@@ -52,7 +52,7 @@ function isDirectExecution(): boolean {
 
 if (isDirectExecution()) {
 	main().catch((error: unknown) => {
-		console.error("❌ Failed to create ZIP:", error);
+		console.error("❌ Failed to create archive:", error);
 		process.exit(1);
 	});
 }
