@@ -56,6 +56,7 @@ export function mergeOptions(rawCliOptions: RawCliOptions, config: ZipItConfig):
 	const mediaMode = rawCliOptions.mediaMode ?? configLayer.media?.mode ?? "tiny";
 	const keepVideoOriginals = rawCliOptions.keepVideoOriginals ?? configLayer.media?.keepVideoOriginals ?? false;
 	const keepAudioOriginals = rawCliOptions.keepAudioOriginals ?? configLayer.media?.keepAudioOriginals ?? false;
+	const emptyPatterns = [...(configLayer.overrides?.empty ?? []), ...(rawCliOptions.emptyPatterns ?? [])];
 	const ignorePatterns = [...(configLayer.ignore ?? []), ...rawCliOptions.ignorePatterns];
 	const verbosity = rawCliOptions.verbosity ?? 0;
 
@@ -88,6 +89,9 @@ export function mergeOptions(rawCliOptions: RawCliOptions, config: ZipItConfig):
 			keepVideoOriginals,
 			keepAudioOriginals,
 		},
+		overrides: {
+			emptyPatterns,
+		},
 		ignorePatterns,
 		dryRun: rawCliOptions.dryRun ?? false,
 		verbosity,
@@ -97,6 +101,7 @@ export function mergeOptions(rawCliOptions: RawCliOptions, config: ZipItConfig):
 export function parseRawCliOptions(argv: readonly string[]): RawCliOptions {
 	const options: RawCliOptions = {
 		ignorePatterns: [],
+		emptyPatterns: [],
 	};
 
 	for (let index = 0; index < argv.length; index++) {
@@ -163,6 +168,9 @@ export function parseRawCliOptions(argv: readonly string[]): RawCliOptions {
 			case "--ignore":
 				options.ignorePatterns.push(requireValue(argv, ++index, "--ignore"));
 				break;
+			case "--empty":
+				(options.emptyPatterns ??= []).push(requireValue(argv, ++index, "--empty"));
+				break;
 			case "--dry-run":
 				options.dryRun = true;
 				break;
@@ -209,6 +217,7 @@ function resolveConfigLayer(config: ZipItConfig, target: string | undefined): Zi
 		scope: config.scope,
 		ignore: config.ignore,
 		media: config.media,
+		overrides: config.overrides,
 	};
 
 	if (!target) {
@@ -235,6 +244,9 @@ function mergeConfigLayers(base: ZipItConfigLayer, override: ZipItConfigLayer): 
 		scope: { ...base.scope, ...override.scope },
 		ignore: [...(base.ignore ?? []), ...(override.ignore ?? [])],
 		media: { ...base.media, ...override.media },
+		overrides: {
+			empty: [...(base.overrides?.empty ?? []), ...(override.overrides?.empty ?? [])],
+		},
 	};
 }
 
@@ -275,6 +287,8 @@ function parseConfigLayer(value: Record<string, unknown>, prefix: string): ZipIt
 		scope: value.scope === undefined ? undefined : parseScopeConfig(value.scope, field("scope")),
 		ignore: value.ignore === undefined ? undefined : readStringArray(value.ignore, field("ignore")),
 		media: value.media === undefined ? undefined : parseMediaConfig(value.media, field("media")),
+		overrides:
+			value.overrides === undefined ? undefined : parseOverridesConfig(value.overrides, field("overrides")),
 	};
 }
 
@@ -359,6 +373,16 @@ function parseMediaConfig(value: unknown, fieldName: string): ZipItConfigLayer["
 			value.keepAudioOriginals === undefined
 				? undefined
 				: readBoolean(value.keepAudioOriginals, `${fieldName}.keepAudioOriginals`),
+	};
+}
+
+function parseOverridesConfig(value: unknown, fieldName: string): ZipItConfigLayer["overrides"] {
+	if (!isRecord(value)) {
+		throw new Error(`${fieldName} must be a JSON object.`);
+	}
+
+	return {
+		empty: value.empty === undefined ? undefined : readStringArray(value.empty, `${fieldName}.empty`),
 	};
 }
 
@@ -521,6 +545,8 @@ Options:
 --no-related-tests         Do not include tests related to --project.
 --no-root-files            Do not include repository-level support files in project scope.
 --ignore <glob>            Additional ignore pattern. Can be used multiple times.
+--empty <glob>             Keep matching paths, but store their contents as 0 bytes.
+                           Can be used multiple times.
 --dry-run                  Show the packaging plan without creating an archive.
 --no-media-minify          Keep images, videos and audio unchanged.
 --media-mode <tiny|preserve-shape>
@@ -539,5 +565,6 @@ zip-it --selection git-visible --media-mode preserve-shape
 zip-it --format tar.zst --compression-level 9
 zip-it --project src/MyApp/MyApp.csproj --format tar.gz
 zip-it --ignore "src/**/Content/Generated/**"
+zip-it --empty "**/*.mpq"
 `);
 }

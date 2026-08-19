@@ -57,6 +57,8 @@ zip-it [options]
 --no-related-tests         Do not include tests related to --project.
 --no-root-files            Do not include repository-level support files in project scope.
 --ignore <glob>            Additional ignore pattern. Can be used multiple times.
+--empty <glob>             Keep matching paths, but store their contents as 0 bytes.
+                           Can be used multiple times.
 --dry-run                  Show the packaging plan without creating an archive.
 --no-media-minify          Keep images, videos and audio unchanged.
 --media-mode <tiny|preserve-shape>
@@ -201,6 +203,9 @@ The configuration file remains optional. Existing version-1-style configuration 
 		"includeRootFiles": true
 	},
 	"ignore": ["src/**/Content/Generated/**"],
+	"overrides": {
+		"empty": ["**/*.mpq"]
+	},
 	"media": {
 		"minify": true,
 		"mode": "preserve-shape",
@@ -325,6 +330,30 @@ For a repository where `Assets/Source` and generator recipes are the source of t
 ```
 
 With `git-visible`, the explicit `Content/Generated` ignore is technically redundant when Git already ignores that path. Keeping it is still useful as an executable project invariant if someone later changes `.gitignore` or explicitly switches to filesystem selection.
+
+## Empty-file overrides
+
+Use `overrides.empty` when a file must remain present in the archive, but its payload is not useful for review or transfer.
+Matching files keep their original relative path and are stored with a zero-byte payload. The source files on disk are never modified.
+
+```json
+{
+	"version": 2,
+	"overrides": {
+		"empty": ["**/*.mpq", "fixtures/**/*.bin"]
+	}
+}
+```
+
+Patterns use the same glob syntax as ignore rules. Root and target arrays are additive, and repeated CLI `--empty` values are appended after configuration.
+
+An empty-file override takes precedence over media minimization. For example, if a pattern also matches an image, the archived file is zero bytes rather than an image placeholder.
+
+CLI equivalent:
+
+```bash
+zip-it --empty "**/*.mpq"
+```
 
 ## Ignore rules
 

@@ -37,6 +37,10 @@ export type MediaOptions = Readonly<{
 	keepAudioOriginals: boolean;
 }>;
 
+export type OverrideOptions = Readonly<{
+	emptyPatterns: readonly string[];
+}>;
+
 export type SelectionOptions = Readonly<{
 	mode: SelectionMode;
 }>;
@@ -63,6 +67,7 @@ export type CliOptions = Readonly<{
 	archive: ArchiveOptions;
 	scope: ScopeOptions;
 	media: MediaOptions;
+	overrides: OverrideOptions;
 	ignorePatterns: readonly string[];
 	dryRun: boolean;
 	verbosity: VerbosityLevel;
@@ -85,6 +90,7 @@ export type RawCliOptions = {
 	mediaMode?: MediaMode;
 	keepVideoOriginals?: boolean;
 	keepAudioOriginals?: boolean;
+	emptyPatterns?: string[];
 	dryRun?: boolean;
 	verbosity?: VerbosityLevel;
 };
@@ -112,6 +118,9 @@ export type ZipItConfigLayer = Readonly<{
 		mode?: MediaMode;
 		keepVideoOriginals?: boolean;
 		keepAudioOriginals?: boolean;
+	}>;
+	overrides?: Readonly<{
+		empty?: readonly string[];
 	}>;
 }>;
 
@@ -176,11 +185,15 @@ export type ZipStats = {
 	replacedAudioFiles: number;
 	keptOriginalVideoFiles: number;
 	keptOriginalAudioFiles: number;
+	emptiedFiles: number;
 	warnings: string[];
 };
 
 export type DryRunReport = Readonly<{
 	largestFiles: readonly FileEntry[];
+	emptyFilePlan: Readonly<{
+		files: number;
+	}>;
 	mediaReplacementPlan: Readonly<{
 		images: number;
 		videos: number;

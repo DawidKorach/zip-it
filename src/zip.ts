@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { createArchiveWriter } from "./archive-writer.js";
+import { createGlobMatchers, matchesAny, type GlobMatcher } from "./glob.js";
 import {
 	createAudioPlaceholder,
 	createImagePlaceholder,
@@ -42,6 +43,7 @@ export function createInitialStats(
 		replacedAudioFiles: 0,
 		keptOriginalVideoFiles: 0,
 		keptOriginalAudioFiles: 0,
+		emptiedFiles: 0,
 		warnings: [],
 	};
 }
@@ -51,20 +53,22 @@ export async function createArchive(
 	options: CliOptions,
 	stats: ZipStats,
 ): Promise<ZipStats> {
+	const emptyMatchers = createGlobMatchers(options.overrides.emptyPatterns);
+	const mediaEntries = entries.filter((entry) => !matchesAny(entry.relativePath, emptyMatchers));
 	const needsFfmpeg =
 		options.media.minify &&
-		entries.some(
+		mediaEntries.some(
 			(entry) =>
 				(entry.kind === "video" && !options.media.keepVideoOriginals) ||
 				(entry.kind === "audio" && !options.media.keepAudioOriginals),
 		);
 	const ffmpegAvailable = needsFfmpeg ? await isFfmpegAvailable() : false;
-	addFfmpegWarnings(entries, options, stats, ffmpegAvailable);
+	addFfmpegWarnings(mediaEntries, options, stats, ffmpegAvailable);
 
 	try {
 		const writer = await createArchiveWriter(options.output, options.archive);
 		for (const entry of entries) {
-			await addEntry(writer, entry, options, stats, ffmpegAvailable);
+			await addEntry(writer, entry, options, stats, ffmpegAvailable, emptyMatchers);
 		}
 		await writer.finalize();
 	} catch (error) {
@@ -92,8 +96,15 @@ async function addEntry(
 	options: CliOptions,
 	stats: ZipStats,
 	ffmpegAvailable: boolean,
+	emptyMatchers: readonly GlobMatcher[],
 ): Promise<void> {
 	stats.originalTotalSize += entry.size;
+
+	if (matchesAny(entry.relativePath, emptyMatchers)) {
+		stats.emptiedFiles++;
+		await writer.addBuffer(Buffer.alloc(0), entry.relativePath);
+		return;
+	}
 
 	if (!options.media.minify || entry.kind === "normal") {
 		await addOriginalFile(writer, entry, stats);

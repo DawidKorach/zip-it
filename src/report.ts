@@ -1,6 +1,7 @@
 // src/report.ts
 
 import { archiveDisplayName } from "./archive-writer.js";
+import { createGlobMatchers, matchesAny } from "./glob.js";
 import { isFfmpegAvailable } from "./media.js";
 import type {
 	CliOptions,
@@ -15,8 +16,10 @@ import type {
 
 export async function buildDryRunReport(entries: readonly FileEntry[], options: CliOptions): Promise<DryRunReport> {
 	const largestFiles = [...entries].sort((left, right) => right.size - left.size).slice(0, 10);
-	const hasVideo = entries.some((entry) => entry.kind === "video");
-	const hasAudio = entries.some((entry) => entry.kind === "audio");
+	const emptyMatchers = createGlobMatchers(options.overrides.emptyPatterns);
+	const mediaEntries = entries.filter((entry) => !matchesAny(entry.relativePath, emptyMatchers));
+	const hasVideo = mediaEntries.some((entry) => entry.kind === "video");
+	const hasAudio = mediaEntries.some((entry) => entry.kind === "audio");
 	const needsFfmpeg =
 		options.media.minify &&
 		((hasVideo && !options.media.keepVideoOriginals) || (hasAudio && !options.media.keepAudioOriginals));
@@ -34,23 +37,26 @@ export async function buildDryRunReport(entries: readonly FileEntry[], options: 
 
 	return {
 		largestFiles,
+		emptyFilePlan: {
+			files: entries.filter((entry) => matchesAny(entry.relativePath, emptyMatchers)).length,
+		},
 		mediaReplacementPlan: {
-			images: options.media.minify ? entries.filter((entry) => entry.kind === "image").length : 0,
+			images: options.media.minify ? mediaEntries.filter((entry) => entry.kind === "image").length : 0,
 			videos:
 				options.media.minify && !options.media.keepVideoOriginals && ffmpegAvailable
-					? entries.filter((entry) => entry.kind === "video").length
+					? mediaEntries.filter((entry) => entry.kind === "video").length
 					: 0,
 			audio:
 				options.media.minify && !options.media.keepAudioOriginals && ffmpegAvailable
-					? entries.filter((entry) => entry.kind === "audio").length
+					? mediaEntries.filter((entry) => entry.kind === "audio").length
 					: 0,
 			keptVideos:
 				!options.media.minify || options.media.keepVideoOriginals || !ffmpegAvailable
-					? entries.filter((entry) => entry.kind === "video").length
+					? mediaEntries.filter((entry) => entry.kind === "video").length
 					: 0,
 			keptAudio:
 				!options.media.minify || options.media.keepAudioOriginals || !ffmpegAvailable
-					? entries.filter((entry) => entry.kind === "audio").length
+					? mediaEntries.filter((entry) => entry.kind === "audio").length
 					: 0,
 		},
 		warnings,
@@ -80,6 +86,7 @@ export function printStartReport(options: CliOptions, profile: ProfileResolution
 		console.log(`🗂️ Requested selection: ${options.selection.mode}`);
 		console.log(`🎯 Requested scope: ${formatScope(options)}`);
 		console.log(`🖼️ Media mode: ${formatMediaMode(options)}`);
+		console.log(`🕳️ Empty-file override patterns: ${options.overrides.emptyPatterns.length}`);
 		const detectedText = Object.entries(profile.detected)
 			.map(([kind, detected]) => `${kind}=${detected ? "yes" : "no"}`)
 			.join(", ");
@@ -124,6 +131,9 @@ export function printDryRunReport(
 		`📄 Files: ${entries.length} included, ${formatIgnoredCount(scan.ignoredFiles, scan.ignoredDirectories)} ignored`,
 	);
 	console.log(`🖼️ Media: ${formatDryRunMediaSummary(options, dryRun)}`);
+	if (dryRun.emptyFilePlan.files > 0 || options.overrides.emptyPatterns.length > 0) {
+		console.log(`🕳️ Empty overrides: ${dryRun.emptyFilePlan.files} files would be zeroed`);
+	}
 
 	if (options.verbosity >= 2) {
 		console.log(`🚫 Ignore-pattern files: ${scan.ignoredFiles}`);
@@ -135,6 +145,7 @@ export function printDryRunReport(
 		console.log(`🔇 Audio files to replace: ${dryRun.mediaReplacementPlan.audio}`);
 		console.log(`🎞️ Video files kept original: ${dryRun.mediaReplacementPlan.keptVideos}`);
 		console.log(`🔊 Audio files kept original: ${dryRun.mediaReplacementPlan.keptAudio}`);
+		console.log(`🕳️ Files to zero: ${dryRun.emptyFilePlan.files}`);
 		printLargestFiles(dryRun.largestFiles);
 		printPathDiagnostics(entries);
 		printDirectoryContributors(entries);
@@ -173,6 +184,9 @@ export function printZipReport(
 		console.log(`📄 Files: ${formatArchiveFileSummary(stats)}`);
 		console.log(`📉 Size: ${formatArchiveSizeSummary(stats)}`);
 		console.log(`🖼️ Media: ${formatZipMediaSummary(options, stats)}`);
+		if (stats.emptiedFiles > 0 || options.overrides.emptyPatterns.length > 0) {
+			console.log(`🕳️ Empty overrides: ${stats.emptiedFiles} files zeroed`);
+		}
 		printWarnings(warnings, options.verbosity);
 		return;
 	}
@@ -184,6 +198,9 @@ export function printZipReport(
 	console.log(`📄 Files: ${formatArchiveFileSummary(stats)}`);
 	console.log(`📉 Size: ${formatArchiveSizeSummary(stats)}`);
 	console.log(`🖼️ Media: ${formatZipMediaSummary(options, stats)}`);
+	if (stats.emptiedFiles > 0 || options.overrides.emptyPatterns.length > 0) {
+		console.log(`🕳️ Empty overrides: ${stats.emptiedFiles} files zeroed`);
+	}
 
 	if (options.verbosity >= 2) {
 		if (stats.compressedPayloadSize !== undefined) {
@@ -203,6 +220,7 @@ export function printZipReport(
 		console.log(`🔇 Replaced audio files: ${stats.replacedAudioFiles}`);
 		console.log(`🎞️ Video files kept original: ${stats.keptOriginalVideoFiles}`);
 		console.log(`🔊 Audio files kept original: ${stats.keptOriginalAudioFiles}`);
+		console.log(`🕳️ Files zeroed by override: ${stats.emptiedFiles}`);
 		printLargestFiles([...entries].sort((left, right) => right.size - left.size).slice(0, 10));
 		printPathDiagnostics(entries);
 		printDirectoryContributors(entries);

@@ -42,10 +42,19 @@ test("parses --profile and rejects unsupported values", async () => {
 		/error: Command failed|Invalid profile: php/i,
 	);
 
-	const raw = parseRawCliOptions(["--profile", "android", "--dry-run", "--media-mode", "preserve-shape"]);
+	const raw = parseRawCliOptions([
+		"--profile",
+		"android",
+		"--dry-run",
+		"--media-mode",
+		"preserve-shape",
+		"--empty",
+		"**/*.mpq",
+	]);
 	assert.equal(raw.profile, "android");
 	assert.equal(raw.dryRun, true);
 	assert.equal(raw.mediaMode, "preserve-shape");
+	assert.deepEqual(raw.emptyPatterns, ["**/*.mpq"]);
 
 	const aliasRaw = parseRawCliOptions(["--preserve-media-shape"]);
 	assert.equal(aliasRaw.mediaMode, "preserve-shape");
@@ -266,6 +275,7 @@ test("loads optional .zip-it.json and lets CLI override scalar values", async ()
 			profile: "dotnet",
 			output: ".artifacts/from-config.zip",
 			ignore: ["**/*.bak"],
+			overrides: { empty: ["**/*.mpq"] },
 			media: { minify: false, mode: "preserve-shape", keepAudioOriginals: true },
 		}),
 	);
@@ -279,6 +289,7 @@ test("loads optional .zip-it.json and lets CLI override scalar values", async ()
 	assert.equal(options.profile, "node");
 	assert.equal(options.output, path.join(root, ".artifacts/from-config.zip"));
 	assert.deepEqual(options.ignorePatterns, ["**/*.bak"]);
+	assert.deepEqual(options.overrides, { emptyPatterns: ["**/*.mpq"] });
 	assert.deepEqual(options.media, {
 		minify: false,
 		mode: "preserve-shape",
@@ -423,12 +434,14 @@ test("merges named targets and derives the output extension from the archive for
 			version: 2,
 			profile: "dotnet",
 			ignore: ["base/**"],
+			overrides: { empty: ["**/*.mpq"] },
 			defaultTarget: "review",
 			targets: {
 				review: {
 					selection: { mode: "git-visible" },
 					archive: { format: "tar.gz", compressionLevel: 9 },
 					ignore: ["generated/**"],
+					overrides: { empty: ["fixtures/**/*.bin"] },
 					media: { mode: "preserve-shape" },
 				},
 			},
@@ -445,6 +458,7 @@ test("merges named targets and derives the output extension from the archive for
 	assert.equal(options.selection.mode, "git-visible");
 	assert.equal(options.media.mode, "preserve-shape");
 	assert.deepEqual(options.ignorePatterns, ["base/**", "generated/**"]);
+	assert.deepEqual(options.overrides.emptyPatterns, ["**/*.mpq", "fixtures/**/*.bin"]);
 });
 
 test("git-visible includes untracked visible files and excludes Git-ignored files", async () => {
@@ -511,6 +525,43 @@ test("dotnet project scope includes transitive references and related tests", as
 	assert(scope.files.includes("Directory.Build.props"));
 	assert(scope.files.includes("global.json"));
 	assert(!scope.files.includes("src/Other/Other.cs"));
+});
+
+test("stores empty-file override matches as zero-byte archive entries without modifying the source", async () => {
+	const root = await createTempProject();
+	const sourcePayload = Buffer.alloc(1024 * 1024, 0x5a);
+	await writeFile(root, "third-party/D2GL/d2gl.mpq", sourcePayload);
+	await writeFile(root, "src/index.ts", "export const value = 1;\n");
+	const output = path.join(root, ".artifacts/project.tar.gz");
+	const options = mergeOptions(
+		parseRawCliOptions([
+			"--root",
+			root,
+			"--output",
+			output,
+			"--selection",
+			"filesystem",
+			"--format",
+			"tar.gz",
+			"--no-media-minify",
+			"--empty",
+			"**/*.mpq",
+		]),
+		{},
+	);
+	const scan = await scanProjectFiles(root, [], "filesystem");
+	const entries = await buildFileEntries(root, scan.files);
+	const stats = createInitialStats(entries.length, 0, 0);
+	await fs.mkdir(path.dirname(output), { recursive: true });
+	await createArchive(entries, options, stats);
+
+	const tarEntries = readTarEntries(gunzipSync(await fs.readFile(output)));
+	const mpqEntry = tarEntries.find((entry) => entry.path === "third-party/D2GL/d2gl.mpq");
+	assert(mpqEntry);
+	assert.equal(mpqEntry.size, 0);
+	assert.equal(stats.emptiedFiles, 1);
+	assert.equal(stats.originalTotalSize, sourcePayload.length + Buffer.byteLength("export const value = 1;\n"));
+	assert.equal((await fs.readFile(path.join(root, "third-party/D2GL/d2gl.mpq"))).length, sourcePayload.length);
 });
 
 test("reports the final archive SHA-256 in compact output", async () => {
