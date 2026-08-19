@@ -1,6 +1,6 @@
 {
 	"name": "@da-core/zip-it",
-	"version": "2.2.0",
+	"version": "2.3.0",
 	"description": "Create lightweight project archives with Git-aware selection, project profiles for Node, Python, .NET and Android, .NET project scoping and minimized media placeholders.",
 	"type": "module",
 	"license": "MIT",
