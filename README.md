@@ -86,7 +86,17 @@ zip-it [options]
 git ls-files -z --cached --others --exclude-standard
 ```
 
-This means generated paths already covered by `.gitignore` do not need to be duplicated in `.zip-it.json`. Explicit `zip-it` ignore and security rules are still applied after Git selection.
+This means generated paths already covered by `.gitignore` do not need to be duplicated in `.zip-it.json`.
+
+For Git-based selection, Git is the source of truth for project-shape heuristics. IDE and architecture-specific rules such as `.vscode/**`, `node_modules/**`, `dist/**`, `bin/**`, `obj/**` and similar filesystem heuristics are not re-applied after Git selection. This allows repository configuration files intentionally exposed by `.gitignore` rules to remain part of the archive.
+
+Hard exclusions still apply after Git selection:
+
+- common archive-safety rules such as `.artifacts/**`, `**/*.zip` and `**/*.log`,
+- security-sensitive paths,
+- explicit `.zip-it.json` `ignore` entries and CLI `--ignore` values.
+
+`filesystem` selection keeps the more aggressive IDE and architecture-specific heuristics because there is no Git index or ignore configuration to define repository intent.
 
 Examples:
 
@@ -375,7 +385,7 @@ Security-sensitive examples:
 
 ```txt
 **/.env
-**/.env.*
+.env.* except public template names
 **/*.pfx
 **/*.p12
 **/*.pem
@@ -388,7 +398,7 @@ Security-sensitive examples:
 **/appsettings.*.Local.json
 ```
 
-Sensitive files discovered by the active selection mode are ignored and reported as warnings.
+Sensitive files discovered by the active selection mode are ignored and reported as warnings. Environment files are classified semantically: `.env.example`, `.env.sample`, `.env.template` and `.env.dist` are treated as public templates, while `.env` and other `.env.*` names such as `.env.local` or `.env.production` remain sensitive.
 
 ### Python
 
@@ -467,11 +477,13 @@ Video and audio placeholder generation uses `ffmpeg`. If `ffmpeg` is unavailable
 
 | Level | Output                                                                                                 |
 | ----- | ------------------------------------------------------------------------------------------------------ |
-| `0`   | Compact final summary.                                                                                 |
-| `1`   | Progress and a readable final report with resolved profile, selection, scope, sizes and media summary. |
+| `0`   | Compact final summary; interactive terminals also show a transient spinner while work is in progress.   |
+| `1`   | Persistent progress and a readable final report with resolved profile, selection, scope and sizes.       |
 | `2`   | Level 1 plus archive internals, counters, largest files, path diagnostics and contributors.            |
 | `3`   | Level 2 plus the complete included-file list.                                                          |
 | `dev` | Level 3 plus resolved internal options.                                                                |
+
+The level-0 spinner is emitted only when `stderr` is an interactive TTY. Redirected output and CI logs remain clean. Archive progress distinguishes file packing from finalization, archive metadata inspection and SHA-256 calculation rather than presenting a misleading compression percentage.
 
 Examples:
 

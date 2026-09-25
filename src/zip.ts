@@ -12,7 +12,7 @@ import {
 	createVideoPlaceholder,
 	isFfmpegAvailable,
 } from "./media.js";
-import type { CliOptions, FileEntry, ZipStats } from "./types.js";
+import type { ArchiveProgressCallback, CliOptions, FileEntry, ZipStats } from "./types.js";
 import { inspectZipArchive } from "./zip-inspector.js";
 
 export async function ensureOutputDir(outputPath: string): Promise<void> {
@@ -52,6 +52,7 @@ export async function createArchive(
 	entries: readonly FileEntry[],
 	options: CliOptions,
 	stats: ZipStats,
+	onProgress?: ArchiveProgressCallback,
 ): Promise<ZipStats> {
 	const emptyMatchers = createGlobMatchers(options.overrides.emptyPatterns);
 	const mediaEntries = entries.filter((entry) => !matchesAny(entry.relativePath, emptyMatchers));
@@ -67,20 +68,26 @@ export async function createArchive(
 
 	try {
 		const writer = await createArchiveWriter(options.output, options.archive);
+		let completedEntries = 0;
 		for (const entry of entries) {
 			await addEntry(writer, entry, options, stats, ffmpegAvailable, emptyMatchers);
+			completedEntries++;
+			onProgress?.({ phase: "entries", completed: completedEntries, total: entries.length });
 		}
+		onProgress?.({ phase: "finalizing" });
 		await writer.finalize();
 	} catch (error) {
 		await fs.promises.rm(options.output, { force: true }).catch(() => undefined);
 		throw error;
 	}
 
+	onProgress?.({ phase: "metadata" });
 	const diagnostics =
 		options.archive.format === "zip"
 			? await inspectZipArchive(options.output)
 			: { archiveSize: (await fs.promises.stat(options.output)).size };
 	stats.archiveSize = diagnostics.archiveSize;
+	onProgress?.({ phase: "hashing" });
 	stats.archiveSha256 = await calculateFileSha256(options.output);
 	stats.compressedPayloadSize = diagnostics.compressedPayloadSize;
 	stats.archiveMetadataSize = diagnostics.archiveMetadataSize;

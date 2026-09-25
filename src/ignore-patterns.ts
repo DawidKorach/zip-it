@@ -1,5 +1,6 @@
 // src/ignore-patterns.ts
 
+import { createGlobMatchers, matchesAny, toPosixPath } from "./glob.js";
 import { PROJECT_KIND_VALUES, type EffectiveProfile } from "./types.js";
 
 export const COMMON_IGNORE_PATTERNS = [
@@ -14,7 +15,6 @@ export const COMMON_IGNORE_PATTERNS = [
 
 export const SECURITY_IGNORE_PATTERNS = [
 	"**/.env",
-	"**/.env.*",
 	"**/*.pfx",
 	"**/*.p12",
 	"**/*.pem",
@@ -163,6 +163,29 @@ const IGNORE_PATTERN_GROUPS = {
 } as const;
 
 export type IgnorePatternGroupName = keyof typeof IGNORE_PATTERN_GROUPS;
+
+
+const PUBLIC_ENV_TEMPLATE_NAMES = new Set([".env.example", ".env.sample", ".env.template", ".env.dist"]);
+const SECURITY_IGNORE_MATCHERS = createGlobMatchers(SECURITY_IGNORE_PATTERNS);
+const GIT_ALWAYS_IGNORE_GROUPS = new Set(["common", "security"]);
+
+export function isSecuritySensitivePath(relativePath: string): boolean {
+	const normalizedPath = toPosixPath(relativePath);
+	const fileName = normalizedPath.split("/").at(-1) ?? normalizedPath;
+
+	if (PUBLIC_ENV_TEMPLATE_NAMES.has(fileName)) {
+		return false;
+	}
+	if (fileName.startsWith(".env.")) {
+		return true;
+	}
+
+	return matchesAny(normalizedPath, SECURITY_IGNORE_MATCHERS);
+}
+
+export function getGitSelectionIgnorePatternsForGroups(groupNames: readonly string[]): string[] {
+	return getIgnorePatternsForGroups(groupNames.filter((groupName) => GIT_ALWAYS_IGNORE_GROUPS.has(groupName)));
+}
 
 export function getIgnorePatternsForGroups(groupNames: readonly string[]): string[] {
 	const patterns: string[] = [];

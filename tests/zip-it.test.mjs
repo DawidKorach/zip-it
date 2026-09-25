@@ -8,7 +8,11 @@ import { promisify } from "node:util";
 import { test } from "node:test";
 import { gunzipSync } from "node:zlib";
 import { mergeOptions, parseRawCliOptions, readProjectConfig } from "../dist/config.js";
-import { getIgnorePatternsForGroups } from "../dist/ignore-patterns.js";
+import {
+	getGitSelectionIgnorePatternsForGroups,
+	getIgnorePatternsForGroups,
+	isSecuritySensitivePath,
+} from "../dist/ignore-patterns.js";
 import { createShapePreservingImagePlaceholder, getFileKind } from "../dist/media.js";
 import { detectProjectKinds, resolveProfile } from "../dist/profile.js";
 import { applyProjectScope } from "../dist/project-scope.js";
@@ -485,6 +489,87 @@ test("git-visible includes untracked visible files and excludes Git-ignored file
 	assert(!tracked.files.includes("visible-untracked.txt"));
 });
 
+test("Git selection trusts Git over IDE and build heuristics while keeping hard safety rules", async () => {
+	const root = await createTempProject();
+	await execFileAsync("git", ["init", "-q"], { cwd: root });
+	await execFileAsync("git", ["config", "user.email", "zip-it-tests@example.invalid"], { cwd: root });
+	await execFileAsync("git", ["config", "user.name", "zip-it tests"], { cwd: root });
+	await writeFile(
+		root,
+		".gitignore",
+		[".vscode/*", "!.vscode/settings.json", ".env.*", "!.env.example", ""].join("\n"),
+	);
+	await writeFile(root, "package.json", "{}\n");
+	await writeFile(root, ".vscode/settings.json", "{\"editor.formatOnSave\":true}\n");
+	await writeFile(root, ".vscode/tasks.json", "{}\n");
+	await writeFile(root, ".env.example", "API_URL=https://example.invalid\n");
+	await writeFile(root, ".env.production", "REAL_SECRET=do-not-package\n");
+	await execFileAsync("git", ["add", ".gitignore", "package.json", ".vscode/settings.json", ".env.example"], {
+		cwd: root,
+	});
+	await execFileAsync("git", ["add", "-f", ".env.production"], { cwd: root });
+	await execFileAsync("git", ["commit", "-qm", "initial"], { cwd: root });
+
+	const detected = await detectProjectKinds(root);
+	const profile = resolveProfile("node", detected);
+	const filesystemIgnorePatterns = getIgnorePatternsForGroups(profile.activeIgnoreGroups);
+	const gitIgnorePatterns = getGitSelectionIgnorePatternsForGroups(profile.activeIgnoreGroups);
+
+	const gitVisible = await scanProjectFiles(
+		root,
+		filesystemIgnorePatterns,
+		"git-visible",
+		gitIgnorePatterns,
+	);
+	const gitTracked = await scanProjectFiles(
+		root,
+		filesystemIgnorePatterns,
+		"git-tracked",
+		gitIgnorePatterns,
+	);
+	const filesystem = await scanProjectFiles(root, filesystemIgnorePatterns, "filesystem", gitIgnorePatterns);
+
+	assert(gitVisible.files.includes(".vscode/settings.json"));
+	assert(gitTracked.files.includes(".vscode/settings.json"));
+	assert(gitVisible.files.includes(".env.example"));
+	assert(gitTracked.files.includes(".env.example"));
+	assert(!gitVisible.files.includes(".vscode/tasks.json"));
+	assert(!gitVisible.files.includes(".env.production"));
+	assert(!gitTracked.files.includes(".env.production"));
+	assert(gitTracked.sensitiveFiles.includes(".env.production"));
+
+	assert(!filesystem.files.includes(".vscode/settings.json"));
+	assert(filesystem.files.includes(".env.example"));
+	assert(!filesystem.files.includes(".env.production"));
+});
+
+test("explicit zip-it ignores still override Git selection", async () => {
+	const root = await createTempProject();
+	await execFileAsync("git", ["init", "-q"], { cwd: root });
+	await writeFile(root, ".vscode/settings.json", "{}\n");
+
+	const scan = await scanProjectFiles(
+		root,
+		[],
+		"git-visible",
+		["**/.vscode/settings.json"],
+	);
+
+	assert(!scan.files.includes(".vscode/settings.json"));
+	assert.equal(scan.ignoredFiles, 1);
+});
+
+test("public env templates are not classified as secrets", () => {
+	for (const file of [".env.example", ".env.sample", ".env.template", ".env.dist"]) {
+		assert.equal(isSecuritySensitivePath(file), false, file);
+		assert.equal(isSecuritySensitivePath(`apps/web/${file}`), false, file);
+	}
+
+	for (const file of [".env", ".env.local", ".env.production", ".env.staging.local"]) {
+		assert.equal(isSecuritySensitivePath(file), true, file);
+	}
+});
+
 test("dotnet project scope includes transitive references and related tests", async () => {
 	const root = await createTempProject();
 	await writeFile(
@@ -635,6 +720,42 @@ test("creates a portable tar.gz archive with deterministic TAR timestamps", asyn
 			.update(await fs.readFile(output))
 			.digest("hex"),
 	);
+});
+
+test("archive progress reports packing, finalization, metadata and hashing phases", async () => {
+	const root = await createTempProject();
+	await writeFile(root, "a.txt", "a\n");
+	await writeFile(root, "b.txt", "b\n");
+	const output = path.join(root, ".artifacts/project.tar.gz");
+	const options = mergeOptions(
+		parseRawCliOptions([
+			"--root",
+			root,
+			"--output",
+			output,
+			"--selection",
+			"filesystem",
+			"--format",
+			"tar.gz",
+			"--no-media-minify",
+		]),
+		{},
+	);
+	const scan = await scanProjectFiles(root, [], "filesystem");
+	const entries = await buildFileEntries(root, scan.files);
+	const stats = createInitialStats(entries.length, 0, 0);
+	const events = [];
+	await fs.mkdir(path.dirname(output), { recursive: true });
+
+	await createArchive(entries, options, stats, (event) => events.push(event));
+
+	assert.deepEqual(events, [
+		{ phase: "entries", completed: 1, total: 2 },
+		{ phase: "entries", completed: 2, total: 2 },
+		{ phase: "finalizing" },
+		{ phase: "metadata" },
+		{ phase: "hashing" },
+	]);
 });
 
 function readTarEntries(buffer) {

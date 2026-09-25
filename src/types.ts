@@ -166,6 +166,14 @@ export type ArchiveDiagnostics = Readonly<{
 	archiveMetadataSize?: number;
 }>;
 
+export type ArchiveProgressEvent =
+	| Readonly<{ phase: "entries"; completed: number; total: number }>
+	| Readonly<{ phase: "finalizing" }>
+	| Readonly<{ phase: "metadata" }>
+	| Readonly<{ phase: "hashing" }>;
+
+export type ArchiveProgressCallback = (event: ArchiveProgressEvent) => void;
+
 export type ZipStats = {
 	originalTotalSize: number;
 	archiveInputSize: number;

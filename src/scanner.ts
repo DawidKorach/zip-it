@@ -4,28 +4,28 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { createGlobMatchers, matchesAny, toPosixPath } from "./glob.js";
-import { SECURITY_IGNORE_PATTERNS } from "./ignore-patterns.js";
+import { isSecuritySensitivePath } from "./ignore-patterns.js";
 import { getFileKind } from "./media.js";
 import type { EffectiveSelectionMode, FileEntry, ScanResult, SelectionMode } from "./types.js";
 
 export async function scanProjectFiles(
 	root: string,
-	ignorePatterns: readonly string[],
+	filesystemIgnorePatterns: readonly string[],
 	requestedSelectionMode: SelectionMode = "auto",
+	gitIgnorePatterns: readonly string[] = filesystemIgnorePatterns,
 ): Promise<ScanResult> {
 	const selection = await resolveSelectionMode(root, requestedSelectionMode);
 
 	if (selection.mode === "filesystem") {
-		const result = await scanFileSystem(root, ignorePatterns);
+		const result = await scanFileSystem(root, filesystemIgnorePatterns);
 		return { ...result, selectionMode: selection.mode, gitIgnoredFiles: 0, warnings: selection.warnings };
 	}
 
-	const result = await scanGitFiles(root, ignorePatterns, selection.mode);
+	const result = await scanGitFiles(root, gitIgnorePatterns, selection.mode);
 	return { ...result, selectionMode: selection.mode, warnings: [...selection.warnings, ...result.warnings] };
 }
 
 export async function buildFileEntries(projectRoot: string, files: readonly string[]): Promise<FileEntry[]> {
-	const securityMatchers = createGlobMatchers(SECURITY_IGNORE_PATTERNS);
 	const entries = await Promise.all(
 		files.map(async (file) => {
 			const fullPath = path.join(projectRoot, file);
@@ -36,7 +36,7 @@ export async function buildFileEntries(projectRoot: string, files: readonly stri
 				fullPath,
 				size: stat.size,
 				kind: getFileKind(file),
-				isSensitive: matchesAny(file, securityMatchers),
+				isSensitive: isSecuritySensitivePath(file),
 			};
 		}),
 	);
@@ -104,7 +104,6 @@ async function scanGitFiles(
 					.length
 			: 0;
 	const ignoreMatchers = createGlobMatchers(ignorePatterns);
-	const securityMatchers = createGlobMatchers(SECURITY_IGNORE_PATTERNS);
 	const files: string[] = [];
 	const sensitiveFiles: string[] = [];
 	const warnings: string[] = [];
@@ -116,8 +115,10 @@ async function scanGitFiles(
 			continue;
 		}
 
-		if (matchesAny(relativePath, securityMatchers)) {
+		if (isSecuritySensitivePath(relativePath)) {
 			sensitiveFiles.push(relativePath);
+			ignoredFiles++;
+			continue;
 		}
 		if (matchesAny(relativePath, ignoreMatchers)) {
 			ignoredFiles++;
@@ -156,7 +157,6 @@ async function scanFileSystem(
 	ignorePatterns: readonly string[],
 ): Promise<Omit<ScanResult, "selectionMode" | "gitIgnoredFiles" | "warnings">> {
 	const ignoreMatchers = createGlobMatchers(ignorePatterns);
-	const securityMatchers = createGlobMatchers(SECURITY_IGNORE_PATTERNS);
 	const files: string[] = [];
 	const sensitiveFiles: string[] = [];
 	let ignoredFiles = 0;
@@ -186,8 +186,10 @@ async function scanFileSystem(
 				continue;
 			}
 
-			if (matchesAny(relativePath, securityMatchers)) {
+			if (isSecuritySensitivePath(relativePath)) {
 				sensitiveFiles.push(relativePath);
+				ignoredFiles++;
+				continue;
 			}
 			if (matchesAny(relativePath, ignoreMatchers)) {
 				ignoredFiles++;
