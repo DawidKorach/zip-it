@@ -5,6 +5,7 @@ import path from "node:path";
 import { isRequestedProfile } from "./profile.js";
 import {
 	ARCHIVE_FORMAT_VALUES,
+	ENV_MODE_VALUES,
 	MEDIA_MODE_VALUES,
 	PROFILE_VALUES,
 	SCOPE_MODE_VALUES,
@@ -12,6 +13,7 @@ import {
 } from "./types.js";
 import type {
 	ArchiveFormat,
+	EnvMode,
 	CliOptions,
 	MediaMode,
 	RawCliOptions,
@@ -83,6 +85,7 @@ export function mergeOptions(rawCliOptions: RawCliOptions, config: ZipItConfig):
 			includeRelatedTests: rawCliOptions.includeRelatedTests ?? configLayer.scope?.includeRelatedTests ?? true,
 			includeRootFiles: rawCliOptions.includeRootFiles ?? configLayer.scope?.includeRootFiles ?? true,
 		},
+		env: { mode: rawCliOptions.envMode ?? configLayer.env?.mode ?? "templates" },
 		media: {
 			minify: minifyMedia,
 			mode: mediaMode,
@@ -134,6 +137,9 @@ export function parseRawCliOptions(argv: readonly string[]): RawCliOptions {
 				break;
 			case "--profile":
 				options.profile = parseRequestedProfile(requireValue(argv, ++index, "--profile"));
+				break;
+			case "--env-mode":
+				options.envMode = parseEnvMode(requireValue(argv, ++index, "--env-mode"));
 				break;
 			case "--selection":
 				options.selectionMode = parseSelectionMode(requireValue(argv, ++index, "--selection"));
@@ -216,6 +222,7 @@ function resolveConfigLayer(config: ZipItConfig, target: string | undefined): Zi
 		archive: config.archive,
 		scope: config.scope,
 		ignore: config.ignore,
+		env: config.env,
 		media: config.media,
 		overrides: config.overrides,
 	};
@@ -243,6 +250,7 @@ function mergeConfigLayers(base: ZipItConfigLayer, override: ZipItConfigLayer): 
 		archive: { ...base.archive, ...override.archive },
 		scope: { ...base.scope, ...override.scope },
 		ignore: [...(base.ignore ?? []), ...(override.ignore ?? [])],
+		env: { ...base.env, ...override.env },
 		media: { ...base.media, ...override.media },
 		overrides: {
 			empty: [...(base.overrides?.empty ?? []), ...(override.overrides?.empty ?? [])],
@@ -286,6 +294,7 @@ function parseConfigLayer(value: Record<string, unknown>, prefix: string): ZipIt
 		archive: value.archive === undefined ? undefined : parseArchiveConfig(value.archive, field("archive")),
 		scope: value.scope === undefined ? undefined : parseScopeConfig(value.scope, field("scope")),
 		ignore: value.ignore === undefined ? undefined : readStringArray(value.ignore, field("ignore")),
+		env: value.env === undefined ? undefined : parseEnvConfig(value.env, field("env")),
 		media: value.media === undefined ? undefined : parseMediaConfig(value.media, field("media")),
 		overrides:
 			value.overrides === undefined ? undefined : parseOverridesConfig(value.overrides, field("overrides")),
@@ -355,6 +364,20 @@ function parseScopeConfig(value: unknown, fieldName: string): ZipItConfigLayer["
 				? undefined
 				: readBoolean(value.includeRootFiles, `${fieldName}.includeRootFiles`),
 	};
+}
+
+function parseEnvConfig(value: unknown, fieldName: string): ZipItConfigLayer["env"] {
+	if (!isRecord(value)) {
+		throw new Error(`${fieldName} must be a JSON object.`);
+	}
+	return { mode: value.mode === undefined ? undefined : parseEnvMode(readString(value.mode, `${fieldName}.mode`)) };
+}
+
+function parseEnvMode(value: string): EnvMode {
+	if (!ENV_MODE_VALUES.includes(value as EnvMode)) {
+		throw new Error(`Invalid env mode: ${value}. Expected: ${ENV_MODE_VALUES.join(", ")}.`);
+	}
+	return value as EnvMode;
 }
 
 function parseMediaConfig(value: unknown, fieldName: string): ZipItConfigLayer["media"] {
@@ -532,6 +555,9 @@ Options:
 --target <name>            Apply a named target from .zip-it.json.
 --profile <auto|node|python|dotnet|android|none>
                            Project profile. Defaults to auto.
+--env-mode <templates|redacted|review>
+                           Env handling. review requires an interactive terminal.
+                           Defaults to templates.
 --selection <auto|filesystem|git-visible|git-tracked>
                            File selection strategy. Auto prefers git-visible.
 --format <zip|tar.gz|tar.xz|tar.zst>
@@ -561,6 +587,7 @@ Options:
 Examples:
 zip-it
 zip-it --target review
+zip-it --env-mode redacted
 zip-it --selection git-visible --media-mode preserve-shape
 zip-it --format tar.zst --compression-level 9
 zip-it --project src/MyApp/MyApp.csproj --format tar.gz

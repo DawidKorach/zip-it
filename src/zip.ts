@@ -3,6 +3,8 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { readEnvAssignments, redactEnvAssignments } from "./env.js";
+import { isRealEnvPath } from "./ignore-patterns.js";
 import { createArchiveWriter } from "./archive-writer.js";
 import { createGlobMatchers, matchesAny, type GlobMatcher } from "./glob.js";
 import {
@@ -53,7 +55,11 @@ export async function createArchive(
 	options: CliOptions,
 	stats: ZipStats,
 	onProgress?: ArchiveProgressCallback,
+	reviewedEnv?: ReadonlyMap<string, Buffer>,
 ): Promise<ZipStats> {
+	if (options.env.mode === "review" && !reviewedEnv) {
+		throw new Error("Review mode cannot create an archive without per-key approvals.");
+	}
 	const emptyMatchers = createGlobMatchers(options.overrides.emptyPatterns);
 	const mediaEntries = entries.filter((entry) => !matchesAny(entry.relativePath, emptyMatchers));
 	const needsFfmpeg =
@@ -70,7 +76,7 @@ export async function createArchive(
 		const writer = await createArchiveWriter(options.output, options.archive);
 		let completedEntries = 0;
 		for (const entry of entries) {
-			await addEntry(writer, entry, options, stats, ffmpegAvailable, emptyMatchers);
+			await addEntry(writer, entry, options, stats, ffmpegAvailable, emptyMatchers, reviewedEnv);
 			completedEntries++;
 			onProgress?.({ phase: "entries", completed: completedEntries, total: entries.length });
 		}
@@ -104,12 +110,23 @@ async function addEntry(
 	stats: ZipStats,
 	ffmpegAvailable: boolean,
 	emptyMatchers: readonly GlobMatcher[],
+	reviewedEnv?: ReadonlyMap<string, Buffer>,
 ): Promise<void> {
 	stats.originalTotalSize += entry.size;
 
 	if (matchesAny(entry.relativePath, emptyMatchers)) {
 		stats.emptiedFiles++;
 		await writer.addBuffer(Buffer.alloc(0), entry.relativePath);
+		return;
+	}
+
+	if (isRealEnvPath(entry.relativePath) && options.env.mode !== "templates") {
+		const payload = options.env.mode === "review"
+			? reviewedEnv?.get(entry.relativePath)
+			: redactEnvAssignments(await readEnvAssignments(entry.fullPath));
+		if (!payload) throw new Error(`Missing reviewed environment content for ${entry.relativePath}.`);
+		stats.archiveInputSize += payload.length;
+		await writer.addBuffer(payload, entry.relativePath);
 		return;
 	}
 

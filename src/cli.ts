@@ -1,6 +1,7 @@
 // src/cli.ts
 
 import { pathToFileURL } from "node:url";
+import { interactiveEnvReview } from "./env-review.js";
 import { ActivityReporter } from "./activity.js";
 import { mergeOptions, parseRawCliOptions, readProjectConfig } from "./config.js";
 import { getGitSelectionIgnorePatternsForGroups, getIgnorePatternsForGroups } from "./ignore-patterns.js";
@@ -17,12 +18,14 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
 	const options = mergeOptions(rawCliOptions, config);
 	const detected = await detectProjectKinds(options.root);
 	const profile = resolveProfile(options.profile, detected);
+	// Only the built-in security .env glob is lifted. Explicit user ignores remain.
+	const envSecurityPattern = options.env.mode === "templates" ? [] : ["**/.env"];
 	const filesystemIgnorePatterns = [
-		...getIgnorePatternsForGroups(profile.activeIgnoreGroups),
+		...getIgnorePatternsForGroups(profile.activeIgnoreGroups).filter((pattern) => !envSecurityPattern.includes(pattern)),
 		...options.ignorePatterns,
 	];
 	const gitIgnorePatterns = [
-		...getGitSelectionIgnorePatternsForGroups(profile.activeIgnoreGroups),
+		...getGitSelectionIgnorePatternsForGroups(profile.activeIgnoreGroups).filter((pattern) => !envSecurityPattern.includes(pattern)),
 		...options.ignorePatterns,
 	];
 	const activity = new ActivityReporter(options.verbosity);
@@ -37,6 +40,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
 			filesystemIgnorePatterns,
 			options.selection.mode,
 			gitIgnorePatterns,
+			options.env.mode,
 		);
 		const scopeResult = await applyProjectScope(options.root, scanResult.files, options.scope);
 		const entries = await buildFileEntries(options.root, scopeResult.files);
@@ -48,6 +52,8 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
 			return;
 		}
 
+		activity.stop();
+		const reviewedEnv = options.env.mode === "review" ? await interactiveEnvReview(entries) : undefined;
 		await ensureOutputDir(options.output);
 		activity.update(`📦 Creating ${options.archive.format} archive...`);
 

@@ -8,7 +8,10 @@ import path from "node:path";
 import zlib from "node:zlib";
 import type { FileKind } from "./types.js";
 
-export const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg", ".bmp"]);
+export const IMAGE_EXTENSIONS = new Set([
+	".jpg", ".jpeg", ".jpe", ".jfif", ".png", ".apng", ".webp", ".gif", ".svg",
+	".bmp", ".dib", ".tif", ".tiff", ".tga", ".ico", ".cur", ".qoi",
+]);
 export const VIDEO_EXTENSIONS = new Set([".mp4", ".webm", ".mov", ".m4v", ".mkv", ".avi"]);
 export const AUDIO_EXTENSIONS = new Set([".wav", ".mp3", ".ogg", ".flac", ".m4a", ".wma"]);
 
@@ -16,6 +19,15 @@ const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0
 const MAX_SHAPE_PLACEHOLDER_RAW_BYTES = 64 * 1024 * 1024;
 const MAX_JPEG_DIMENSION = 65_535;
 const MAX_GIF_DIMENSION = 65_535;
+const MAX_WEBP_DIMENSION = 16_384;
+const MAX_ICON_DIMENSION = 256;
+const MAX_TGA_DIMENSION = 65_535;
+const MAX_QOI_DIMENSION = 0xffff_ffff;
+
+// A valid, single-color, lossless 1x1 VP8L image. Its entropy stream contains
+// zero-bit single-symbol Huffman codes, so it represents any canvas size once
+// the dimensions in the VP8L header are updated. No native encoder is needed.
+const BLACK_WEBP_1X1 = Buffer.from("UklGRhoAAABXRUJQVlA4TA4AAAAvAAAAAAcQEf0PRET/Aw==", "base64");
 
 type ImageDimensions = Readonly<{
 	width: number;
@@ -50,22 +62,38 @@ export function createImagePlaceholder(relativePath: string): Buffer {
 
 	switch (extension) {
 		case ".png":
+		case ".apng":
 			return bufferFromBase64(
 				"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
 			);
 		case ".jpg":
 		case ".jpeg":
+		case ".jpe":
+		case ".jfif":
 			return bufferFromBase64(
 				"/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAH/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAEFAqf/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAEDAQE/ASP/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAECAQE/ASP/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAY/Al//xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAE/IV//2gAMAwEAAgADAAAAEP/EFBQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQMBAT8QH//EFBQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQIBAT8QH//EFBABAQAAAAAAAAAAAAAAAAAAARD/2gAIAQEAAT8QH//Z",
 			);
 		case ".webp":
-			return bufferFromBase64("UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA");
+			return createWebpPlaceholder({ width: 1, height: 1 }) ?? failToCreatePlaceholder(extension);
 		case ".gif":
 			return bufferFromBase64("R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==");
 		case ".svg":
 			return Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>`, "utf8");
 		case ".bmp":
 			return createBmpPlaceholder({ width: 1, height: 1 }) ?? failToCreatePlaceholder(extension);
+		case ".dib":
+			return createDibPlaceholder({ width: 1, height: 1 }) ?? failToCreatePlaceholder(extension);
+		case ".tif":
+		case ".tiff":
+			return createTiffPlaceholder({ width: 1, height: 1 }) ?? failToCreatePlaceholder(extension);
+		case ".tga":
+			return createTgaPlaceholder({ width: 1, height: 1 }) ?? failToCreatePlaceholder(extension);
+		case ".ico":
+		case ".cur":
+			return createIconPlaceholder(extension, [{ dimensions: { width: 1, height: 1 }, hotspotX: 0, hotspotY: 0 }])
+				?? failToCreatePlaceholder(extension);
+		case ".qoi":
+			return createQoiPlaceholder({ width: 1, height: 1 }) ?? failToCreatePlaceholder(extension);
 		default:
 			throw new Error(`Unsupported image placeholder extension: ${extension}`);
 	}
@@ -77,6 +105,20 @@ export async function createShapePreservingImagePlaceholder(
 ): Promise<ShapePreservingImagePlaceholderResult | null> {
 	const extension = path.extname(relativePath).toLowerCase();
 	const source = await fs.promises.readFile(fullPath);
+	// ICO/CUR are collections of differently sized images; preserve all entries,
+	// not just the largest canvas, so clients can still select the same size.
+	if (extension === ".ico" || extension === ".cur") {
+		const icons = readIconEntries(source, extension);
+		if (!icons) return null;
+		const buffer = createIconPlaceholder(extension, icons);
+		if (!buffer) return null;
+		const dimensions = icons.reduce((largest, icon) =>
+			icon.dimensions.width * icon.dimensions.height > largest.width * largest.height ? icon.dimensions : largest,
+			icons[0].dimensions,
+		);
+		return { buffer, dimensions };
+	}
+
 	const dimensions = readImageDimensions(extension, source);
 
 	if (!dimensions) {
@@ -168,9 +210,12 @@ function createImagePlaceholderForDimensions(extension: string, dimensions: Imag
 
 	switch (extension) {
 		case ".png":
+		case ".apng":
 			return createPngPlaceholder(dimensions);
 		case ".jpg":
 		case ".jpeg":
+		case ".jpe":
+		case ".jfif":
 			return createJpegPlaceholder(dimensions);
 		case ".gif":
 			return createGifPlaceholder(dimensions);
@@ -178,6 +223,17 @@ function createImagePlaceholderForDimensions(extension: string, dimensions: Imag
 			return createSvgPlaceholder(dimensions);
 		case ".bmp":
 			return createBmpPlaceholder(dimensions);
+		case ".dib":
+			return createDibPlaceholder(dimensions);
+		case ".webp":
+			return createWebpPlaceholder(dimensions);
+		case ".tif":
+		case ".tiff":
+			return createTiffPlaceholder(dimensions);
+		case ".tga":
+			return createTgaPlaceholder(dimensions);
+		case ".qoi":
+			return createQoiPlaceholder(dimensions);
 		default:
 			return null;
 	}
@@ -186,18 +242,30 @@ function createImagePlaceholderForDimensions(extension: string, dimensions: Imag
 function readImageDimensions(extension: string, buffer: Buffer): ImageDimensions | null {
 	switch (extension) {
 		case ".png":
+		case ".apng":
 			return readPngDimensions(buffer);
 		case ".jpg":
 		case ".jpeg":
+		case ".jpe":
+		case ".jfif":
 			return readJpegDimensions(buffer);
 		case ".gif":
 			return readGifDimensions(buffer);
 		case ".bmp":
 			return readBmpDimensions(buffer);
+		case ".dib":
+			return readDibDimensions(buffer);
 		case ".svg":
 			return readSvgDimensions(buffer.toString("utf8"));
 		case ".webp":
 			return readWebpDimensions(buffer);
+		case ".tif":
+		case ".tiff":
+			return readTiffDimensions(buffer);
+		case ".tga":
+			return readTgaDimensions(buffer);
+		case ".qoi":
+			return readQoiDimensions(buffer);
 		default:
 			return null;
 	}
@@ -332,29 +400,237 @@ function readSvgDimensions(source: string): ImageDimensions | null {
 }
 
 function readWebpDimensions(buffer: Buffer): ImageDimensions | null {
-	if (buffer.length < 30 || buffer.toString("ascii", 0, 4) !== "RIFF" || buffer.toString("ascii", 8, 12) !== "WEBP") {
+	if (buffer.length < 25 || buffer.toString("ascii", 0, 4) !== "RIFF" || buffer.toString("ascii", 8, 12) !== "WEBP") {
+		return null;
+	}
+
+	const riffSize = buffer.readUInt32LE(4);
+	const chunkSize = buffer.readUInt32LE(16);
+	if (riffSize < 12 || riffSize + 8 > buffer.length || chunkSize > riffSize - 12 || chunkSize > buffer.length - 20) {
 		return null;
 	}
 
 	const chunkType = buffer.toString("ascii", 12, 16);
-
-	if (chunkType === "VP8X" && buffer.length >= 30) {
+	if (chunkType === "VP8X" && chunkSize >= 10) {
 		return normalizeDimensions(readUInt24LE(buffer, 24) + 1, readUInt24LE(buffer, 27) + 1);
 	}
 
-	if (chunkType === "VP8 " && buffer.length >= 30) {
+	if (chunkType === "VP8 " && chunkSize >= 10 && buffer.length >= 30 &&
+		buffer[23] === 0x9d && buffer[24] === 0x01 && buffer[25] === 0x2a) {
 		return normalizeDimensions(buffer.readUInt16LE(26) & 0x3fff, buffer.readUInt16LE(28) & 0x3fff);
 	}
 
-	if (chunkType === "VP8L" && buffer.length >= 25 && buffer[20] === 0x2f) {
+	if (chunkType === "VP8L" && chunkSize >= 5 && buffer[20] === 0x2f) {
 		const bits = buffer.readUInt32LE(21);
-		const width = (bits & 0x3fff) + 1;
-		const height = ((bits >> 14) & 0x3fff) + 1;
-
-		return normalizeDimensions(width, height);
+		return normalizeDimensions((bits & 0x3fff) + 1, ((bits >>> 14) & 0x3fff) + 1);
 	}
 
 	return null;
+}
+
+function createWebpPlaceholder(dimensions: ImageDimensions): Buffer | null {
+	if (dimensions.width > MAX_WEBP_DIMENSION || dimensions.height > MAX_WEBP_DIMENSION) return null;
+
+	// VP8L stores (width - 1) and (height - 1) as two 14-bit values.
+	// The constant-color entropy stream in this template requires no changes.
+	const buffer = Buffer.from(BLACK_WEBP_1X1);
+	const canvas = ((dimensions.height - 1) << 14) | (dimensions.width - 1);
+	buffer.writeUInt32LE(canvas >>> 0, 21);
+	return buffer;
+}
+
+function readDibDimensions(buffer: Buffer): ImageDimensions | null {
+	if (buffer.length < 40 || buffer.readUInt32LE(0) < 40) return null;
+	return normalizeDimensions(buffer.readInt32LE(4), Math.abs(buffer.readInt32LE(8)));
+}
+
+function createDibPlaceholder(dimensions: ImageDimensions): Buffer | null {
+	const bmp = createBmpPlaceholder(dimensions);
+	return bmp?.subarray(14) ?? null;
+}
+
+function readTgaDimensions(buffer: Buffer): ImageDimensions | null {
+	if (buffer.length < 18) return null;
+	// Supported TGA image types: indexed, truecolor and grayscale (raw or RLE).
+	if (![1, 2, 3, 9, 10, 11].includes(buffer[2])) return null;
+	if (![8, 15, 16, 24, 32].includes(buffer[16])) return null;
+	return normalizeDimensions(buffer.readUInt16LE(12), buffer.readUInt16LE(14));
+}
+
+function createTgaPlaceholder(dimensions: ImageDimensions): Buffer | null {
+	if (dimensions.width > MAX_TGA_DIMENSION || dimensions.height > MAX_TGA_DIMENSION) return null;
+	// Packets must not span scan lines; some otherwise-valid RLE TGA files
+	// cannot be read by decoders that decompress one row at a time.
+	const packetsPerRow = Math.ceil(dimensions.width / 128);
+	const packets = packetsPerRow * dimensions.height;
+	if (packets * 4 > MAX_SHAPE_PLACEHOLDER_RAW_BYTES) return null;
+	const buffer = Buffer.alloc(18 + packets * 4);
+	buffer[2] = 10; // RLE-encoded truecolor
+	buffer.writeUInt16LE(dimensions.width, 12);
+	buffer.writeUInt16LE(dimensions.height, 14);
+	buffer[16] = 24;
+	buffer[17] = 0x20; // top-left origin
+	let offset = 18;
+	for (let row = 0; row < dimensions.height; row++) {
+		for (let remaining = dimensions.width; remaining > 0; offset += 4) {
+			const count = Math.min(remaining, 128);
+			buffer[offset] = 0x80 | (count - 1);
+			remaining -= count;
+		}
+	}
+	return buffer;
+}
+
+function readQoiDimensions(buffer: Buffer): ImageDimensions | null {
+	if (buffer.length < 22 || buffer.toString("ascii", 0, 4) !== "qoif") return null;
+	if (buffer[12] !== 3 && buffer[12] !== 4) return null;
+	return normalizeDimensions(buffer.readUInt32BE(4), buffer.readUInt32BE(8));
+}
+
+function createQoiPlaceholder(dimensions: ImageDimensions): Buffer | null {
+	if (dimensions.width > MAX_QOI_DIMENSION || dimensions.height > MAX_QOI_DIMENSION) return null;
+	const pixels = dimensions.width * dimensions.height;
+	const packets = Math.ceil(pixels / 62);
+	if (!Number.isSafeInteger(pixels) || packets > MAX_SHAPE_PLACEHOLDER_RAW_BYTES) return null;
+	const buffer = Buffer.alloc(14 + packets + 8);
+	buffer.write("qoif", 0, "ascii");
+	buffer.writeUInt32BE(dimensions.width, 4);
+	buffer.writeUInt32BE(dimensions.height, 8);
+	buffer[12] = 4;
+	buffer[13] = 0;
+	// The initial decoder pixel is opaque black: runs alone encode the image.
+	for (let i = 0, remaining = pixels; i < packets; i++) {
+		const count = Math.min(remaining, 62);
+		buffer[14 + i] = 0xc0 | (count - 1);
+		remaining -= count;
+	}
+	buffer[buffer.length - 1] = 1; // QOI end marker
+	return buffer;
+}
+
+function readTiffDimensions(buffer: Buffer): ImageDimensions | null {
+	if (buffer.length < 8) return null;
+	const byteOrder = buffer.toString("ascii", 0, 2);
+	if (byteOrder !== "II" && byteOrder !== "MM") return null;
+	const littleEndian = byteOrder === "II";
+	const u16 = (at: number) => littleEndian ? buffer.readUInt16LE(at) : buffer.readUInt16BE(at);
+	const u32 = (at: number) => littleEndian ? buffer.readUInt32LE(at) : buffer.readUInt32BE(at);
+	if (u16(2) !== 42) return null; // Classic TIFF, not BigTIFF.
+	const ifd = u32(4);
+	if (ifd > buffer.length - 2) return null;
+	const count = u16(ifd);
+	if (count > Math.floor((buffer.length - ifd - 2) / 12)) return null;
+	let width: number | undefined;
+	let height: number | undefined;
+	for (let i = 0; i < count; i++) {
+		const at = ifd + 2 + i * 12;
+		const tag = u16(at);
+		if (tag !== 256 && tag !== 257) continue;
+		const type = u16(at + 2);
+		if (u32(at + 4) !== 1 || (type !== 3 && type !== 4)) return null;
+		const value = type === 3 ? u16(at + 8) : u32(at + 8);
+		if (tag === 256) width = value;
+		else height = value;
+	}
+	return width !== undefined && height !== undefined ? normalizeDimensions(width, height) : null;
+}
+
+function createTiffPlaceholder(dimensions: ImageDimensions): Buffer | null {
+	const rowBytes = Math.ceil(dimensions.width / 8);
+	const rawBytes = rowBytes * dimensions.height;
+	if (rawBytes > MAX_SHAPE_PLACEHOLDER_RAW_BYTES) return null;
+	const image = zlib.deflateSync(Buffer.alloc(rawBytes), { level: 9 });
+	const tagCount = 10;
+	const imageOffset = 8 + 2 + tagCount * 12 + 4;
+	const buffer = Buffer.alloc(imageOffset + image.length);
+	buffer.write("II", 0, "ascii");
+	buffer.writeUInt16LE(42, 2);
+	buffer.writeUInt32LE(8, 4);
+	buffer.writeUInt16LE(tagCount, 8);
+	const tags: readonly (readonly [number, number, number])[] = [
+		[256, 4, dimensions.width], // ImageWidth (LONG)
+		[257, 4, dimensions.height], // ImageLength (LONG)
+		[258, 3, 1], // BitsPerSample (SHORT)
+		[259, 3, 8], // Compression: Adobe Deflate
+		[262, 3, 1], // PhotometricInterpretation: BlackIsZero
+		[273, 4, imageOffset], // StripOffsets
+		[277, 3, 1], // SamplesPerPixel
+		[278, 4, dimensions.height], // RowsPerStrip
+		[279, 4, image.length], // StripByteCounts
+		[284, 3, 1], // PlanarConfiguration
+	];
+	for (let i = 0; i < tags.length; i++) {
+		const [tag, type, value] = tags[i];
+		const at = 10 + i * 12;
+		buffer.writeUInt16LE(tag, at);
+		buffer.writeUInt16LE(type, at + 2);
+		buffer.writeUInt32LE(1, at + 4);
+		if (type === 3) buffer.writeUInt16LE(value, at + 8);
+		else buffer.writeUInt32LE(value, at + 8);
+	}
+	buffer.writeUInt32LE(0, 10 + tagCount * 12);
+	image.copy(buffer, imageOffset);
+	return buffer;
+}
+
+type IconEntry = Readonly<{ dimensions: ImageDimensions; hotspotX: number; hotspotY: number }>;
+
+function readIconEntries(buffer: Buffer, extension: ".ico" | ".cur"): readonly IconEntry[] | null {
+	if (buffer.length < 6 || buffer.readUInt16LE(0) !== 0) return null;
+	if (buffer.readUInt16LE(2) !== (extension === ".ico" ? 1 : 2)) return null;
+	const count = buffer.readUInt16LE(4);
+	if (count === 0 || count > 256 || buffer.length < 6 + count * 16) return null;
+	const entries: IconEntry[] = [];
+	for (let i = 0; i < count; i++) {
+		const at = 6 + i * 16;
+		const dimensions = { width: buffer[at] || 256, height: buffer[at + 1] || 256 };
+		const size = buffer.readUInt32LE(at + 8);
+		const start = buffer.readUInt32LE(at + 12);
+		if (size < 1 || start > buffer.length || size > buffer.length - start) return null;
+		entries.push({
+			dimensions,
+			hotspotX: extension === ".cur" ? buffer.readUInt16LE(at + 4) : 0,
+			hotspotY: extension === ".cur" ? buffer.readUInt16LE(at + 6) : 0,
+		});
+	}
+	return entries;
+}
+
+function createIconPlaceholder(extension: ".ico" | ".cur", entries: readonly IconEntry[]): Buffer | null {
+	if (entries.length < 1 || entries.length > 256) return null;
+	const frames: Buffer[] = [];
+	let total = 6 + entries.length * 16;
+	for (const entry of entries) {
+		const { width, height } = entry.dimensions;
+		if (!isValidDimensionPair(entry.dimensions) || width > MAX_ICON_DIMENSION || height > MAX_ICON_DIMENSION) return null;
+		const png = createPngPlaceholder(entry.dimensions);
+		if (!png) return null;
+		frames.push(png);
+		total += png.length;
+		if (total > MAX_SHAPE_PLACEHOLDER_RAW_BYTES) return null;
+	}
+	const buffer = Buffer.alloc(total);
+	buffer.writeUInt16LE(extension === ".ico" ? 1 : 2, 2);
+	buffer.writeUInt16LE(entries.length, 4);
+	let offset = 6 + entries.length * 16;
+	for (let i = 0; i < entries.length; i++) {
+		const entry = entries[i];
+		const at = 6 + i * 16;
+		buffer[at] = entry.dimensions.width === 256 ? 0 : entry.dimensions.width;
+		buffer[at + 1] = entry.dimensions.height === 256 ? 0 : entry.dimensions.height;
+		if (extension === ".ico") {
+			buffer.writeUInt16LE(1, at + 4); // planes
+			buffer.writeUInt16LE(1, at + 6); // bits per pixel
+		} else {
+			buffer.writeUInt16LE(entry.hotspotX, at + 4);
+			buffer.writeUInt16LE(entry.hotspotY, at + 6);
+		}
+		buffer.writeUInt32LE(frames[i].length, at + 8);
+		buffer.writeUInt32LE(offset, at + 12);
+		frames[i].copy(buffer, offset);
+		offset += frames[i].length;
+	}
+	return buffer;
 }
 
 function createPngPlaceholder(dimensions: ImageDimensions): Buffer | null {

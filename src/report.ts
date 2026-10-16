@@ -84,6 +84,7 @@ export function printStartReport(options: CliOptions, profile: ProfileResolution
 		console.log(`🗜️ Requested archive: ${options.archive.format}, level ${options.archive.compressionLevel}`);
 		console.log(`🧩 Resolved profile: ${profile.effectiveProfile} (requested: ${profile.requestedProfile})`);
 		console.log(`🗂️ Requested selection: ${options.selection.mode}`);
+		console.log(`🔒 Environment mode: ${options.env.mode}`);
 		console.log(`🎯 Requested scope: ${formatScope(options)}`);
 		console.log(`🖼️ Media mode: ${formatMediaMode(options)}`);
 		console.log(`🕳️ Empty-file override patterns: ${options.overrides.emptyPatterns.length}`);
@@ -123,6 +124,7 @@ export function printDryRunReport(
 	);
 	console.log(`🧩 Profile: ${profile.effectiveProfile}`);
 	console.log(`🗂️ Selection: ${scan.selectionMode}`);
+	console.log(`🔒 Env mode: ${options.env.mode}`);
 	if (scope.mode !== "full" || options.verbosity >= 1) {
 		console.log(`🎯 Scope: ${formatScopeResult(scope)}`);
 	}
@@ -193,6 +195,7 @@ export function printZipReport(
 
 	console.log(`🧩 Profile: ${profile.effectiveProfile}`);
 	console.log(`🗂️ Selection: ${scan.selectionMode}`);
+	console.log(`🔒 Env mode: ${options.env.mode}`);
 	console.log(`🎯 Scope: ${formatScopeResult(scope)}`);
 	console.log(`🗜️ Archive: ${options.archive.format}, level ${options.archive.compressionLevel}`);
 	console.log(`📄 Files: ${formatArchiveFileSummary(stats)}`);

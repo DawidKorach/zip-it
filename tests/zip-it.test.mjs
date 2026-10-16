@@ -18,6 +18,8 @@ import { detectProjectKinds, resolveProfile } from "../dist/profile.js";
 import { applyProjectScope } from "../dist/project-scope.js";
 import { buildFileEntries, scanProjectFiles } from "../dist/scanner.js";
 import { createArchive, createInitialStats } from "../dist/zip.js";
+import { parseEnvFile, redactEnvAssignments } from "../dist/env.js";
+import { prepareEnvReview } from "../dist/env-review.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -560,12 +562,15 @@ test("explicit zip-it ignores still override Git selection", async () => {
 });
 
 test("public env templates are not classified as secrets", () => {
-	for (const file of [".env.example", ".env.sample", ".env.template", ".env.dist"]) {
+	for (const file of [
+		".env.example", ".env.sample", ".env.template", ".env.dist",
+		".env.production.example", ".env.staging.local.sample", ".env.dev.template", ".env.prod.dist",
+	]) {
 		assert.equal(isSecuritySensitivePath(file), false, file);
 		assert.equal(isSecuritySensitivePath(`apps/web/${file}`), false, file);
 	}
 
-	for (const file of [".env", ".env.local", ".env.production", ".env.staging.local"]) {
+	for (const file of [".env", ".env.local", ".env.production", ".env.staging.local", ".env.example.local", ".env.production.bak", ".env.production.example.bak"]) {
 		assert.equal(isSecuritySensitivePath(file), true, file);
 	}
 });
@@ -789,3 +794,106 @@ function readTarOctal(buffer, offset, length) {
 	const value = readTarString(buffer, offset, length).trim();
 	return value ? Number.parseInt(value, 8) : 0;
 }
+
+
+test("redacted env mode parses dotenv conservatively and never preserves values", () => {
+  const source = Buffer.from(`# exposed comment fake=secret
+export PASSWORD="first
+second" # private comment
+TOKEN=one=two
+EMPTY=
+# footer
+`);
+  const assignments = parseEnvFile(source);
+  assert.deepEqual(assignments.map((item) => item.key), ["PASSWORD", "TOKEN", "EMPTY"]);
+  assert.equal(redactEnvAssignments(assignments).toString(), "PASSWORD=.\nTOKEN=.\nEMPTY=.\n");
+  for (const value of ["first", "second", "one=two", "private comment", "exposed comment"]) {
+    assert(!redactEnvAssignments(assignments).toString().includes(value));
+  }
+  for (const invalid of ["BAD SYNTAX=secret", "TOKEN=hi\\\nmore", 'QUOTED="oops', "source ~/.env", "\0SECRET=abc"]) {
+    assert.throws(() => parseEnvFile(Buffer.from(invalid)));
+  }
+});
+
+test("redacted mode finds git-ignored env files without pulling other gitignored paths", async () => {
+  const root = await createTempProject();
+  await execFileAsync("git", ["init", "-q"], { cwd: root });
+  await writeFile(root, ".gitignore", ".env*\nignored.txt\n");
+  await writeFile(root, "tracked.txt", "visible");
+  await writeFile(root, "ignored.txt", "hidden");
+  await writeFile(root, ".env.production", "PASSWORD=super-secret");
+  await writeFile(root, ".env.production.example", "KEY=sample");
+  await execFileAsync("git", ["add", ".gitignore", "tracked.txt"], { cwd: root });
+  const defaults = getIgnorePatternsForGroups(["common", "security"]);
+  const filtered = defaults.filter((value) => value !== "**/.env");
+  const scan = await scanProjectFiles(root, filtered, "git-visible", filtered, "redacted");
+  assert(scan.files.includes(".env.production"));
+  assert(!scan.files.includes("ignored.txt"));
+  const withIgnore = await scanProjectFiles(root, [...filtered, "**/.env.production"], "git-visible", [...filtered, "**/.env.production"], "redacted");
+  assert(!withIgnore.files.includes(".env.production"));
+  const trackedOnly = await scanProjectFiles(root, filtered, "git-tracked", filtered, "redacted");
+  assert(!trackedOnly.files.includes(".env.production"));
+});
+
+test("env mode config and CLI precedence", async () => {
+  const root = await createTempProject();
+  await writeFile(root, ".zip-it.json", JSON.stringify({env:{mode:"redacted"}}));
+  const options = mergeOptions(parseRawCliOptions(["--root", root]), await readProjectConfig(root));
+  assert.equal(options.env.mode, "redacted");
+  assert.equal(mergeOptions(parseRawCliOptions(["--root", root, "--env-mode", "templates"]), await readProjectConfig(root)).env.mode, "templates");
+  assert.throws(() => parseRawCliOptions(["--env-mode", "raw"]), /Invalid env mode/);
+});
+
+
+test("review prompts for each key and requires final explicit approval", async () => {
+  const root = await createTempProject();
+  await writeFile(root, ".env", 'PASSWORD=super-secret\nEMPTY=\n');
+  const files = await buildFileEntries(root, [".env"]);
+  const questions = [];
+  const hidden = await prepareEnvReview(files, async (question) => {
+    questions.push(question);
+    return "";
+  });
+  assert.equal(hidden.get(".env").toString(), "PASSWORD=.\nEMPTY=.\n");
+  assert.equal(questions.length, 2);
+  assert(!questions.join(" ").includes("super-secret"));
+
+  await assert.rejects(
+    () => prepareEnvReview(files, async (question) => question.includes("INCLUDE") ? "" : "yes"),
+    /review cancelled/,
+  );
+  const approved = await prepareEnvReview(files, async (question) => {
+    if (question.includes("INCLUDE")) return "INCLUDE";
+    return question.includes("PASSWORD") ? "yes" : "";
+  });
+  assert.equal(approved.get(".env").toString(), "PASSWORD=super-secret\nEMPTY=.\n");
+});
+
+test("review refuses headless CLI instead of packaging secrets", async () => {
+  const root = await createTempProject();
+  await writeFile(root, ".env", "PASSWORD=super-secret\n");
+  const out = path.join(root, "out.tar.gz");
+  await assert.rejects(
+    () => execFileAsync(process.execPath, ["dist/cli.js", "--root", root, "--format", "tar.gz", "--output", out, "--selection", "filesystem", "--env-mode", "review"], {cwd:process.cwd()}),
+    /interactive TTY/,
+  );
+  await assert.rejects(() => fs.stat(out), /ENOENT/);
+});
+
+test("redacted TAR archive contains only masked env assignments", async () => {
+  const root = await createTempProject();
+  await writeFile(root, ".env.production", 'SECRET=very-private-value\nEXAMPLE=another-secret\n');
+  await writeFile(root, "main.ts", "export const x = 1;\n");
+  const output = path.join(root, "output.tar.gz");
+  const options = mergeOptions(parseRawCliOptions(["--root",root,"--format","tar.gz","--selection","filesystem","--output",output,"--env-mode","redacted"]), {});
+  const patterns = getIgnorePatternsForGroups(["common","security"]).filter((x) => x !== "**/.env");
+  const scanned = await scanProjectFiles(root, patterns,"filesystem",patterns,"redacted");
+  assert(scanned.files.includes(".env.production"));
+  const entries = await buildFileEntries(root, scanned.files);
+  await createArchive(entries, options, createInitialStats(entries.length,0,0));
+  const bytes = gunzipSync(await fs.readFile(output));
+  assert(bytes.includes(Buffer.from("SECRET=.\nEXAMPLE=.\n")));
+  assert(!bytes.includes(Buffer.from("very-private-value")));
+  assert(!bytes.includes(Buffer.from("another-secret")));
+  assert.equal(await fs.readFile(path.join(root,".env.production"),"utf8"), 'SECRET=very-private-value\nEXAMPLE=another-secret\n');
+});

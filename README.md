@@ -44,6 +44,8 @@ zip-it [options]
 --target <name>            Apply a named target from .zip-it.json.
 --profile <auto|node|python|dotnet|android|none>
                            Project profile. Defaults to auto.
+--env-mode <templates|redacted|review>
+                           Env handling. Defaults to templates.
 --selection <auto|filesystem|git-visible|git-tracked>
                            File selection strategy. Auto prefers git-visible.
 --format <zip|tar.gz|tar.xz|tar.zst>
@@ -90,6 +92,10 @@ This means generated paths already covered by `.gitignore` do not need to be dup
 
 For Git-based selection, Git is the source of truth for project-shape heuristics. IDE and architecture-specific rules such as `.vscode/**`, `node_modules/**`, `dist/**`, `bin/**`, `obj/**` and similar filesystem heuristics are not re-applied after Git selection. This allows repository configuration files intentionally exposed by `.gitignore` rules to remain part of the archive.
 
+Environment templates such as `.env.example`, `.env.production.example`, `.env.staging.sample`,
+`.env.dev.template`, and `.env.prod.dist` are included when selected, but real
+`.env` files remain excluded by default. Templates should never contain real secrets.
+
 Hard exclusions still apply after Git selection:
 
 - common archive-safety rules such as `.artifacts/**`, `**/*.zip` and `**/*.log`,
@@ -108,6 +114,24 @@ zip-it --selection filesystem
 ```
 
 Explicit Git modes fail when Git is unavailable or the root is not a Git work tree. They never silently change to filesystem selection.
+
+## Environment files
+
+The default `--env-mode templates` includes named public templates (`.env.production.example`
+and similar) but excludes real `.env` files. `--env-mode redacted` adds real
+`.env` files, including those excluded by Git's `.gitignore` when using
+`git-visible`, and stores `KEY=.` for every recognized assignment. Comments are
+removed. Unknown dotenv syntax, invalid UTF-8 and oversized files fail closed.
+`--env-mode review` requires an interactive TTY and asks separately for every
+key, defaulting to redaction. Preserving a value requires typing `yes`, and any
+release containing original values requires a final `INCLUDE` confirmation.
+Prompts show only paths and key names, never the original values. No consent is
+cached; the output archive is **not encrypted**. Review is not available in CI.
+
+Original files are not changed. Explicit `--ignore` and config ignores still apply.
+Use `--selection git-tracked` to limit the result to files tracked by Git.
+
+Never assume that files named `*.example` are free of secrets: check templates before sharing.
 
 ## Archive formats
 
@@ -454,8 +478,25 @@ When Android and .NET are both active, root-level `build/**` is retained so repo
 Supported image extensions include:
 
 ```txt
-.jpg .jpeg .png .webp .gif .svg .bmp
+.jpg .jpeg .jpe .jfif .png .apng .webp .gif .svg .bmp .dib
+.tif .tiff .tga .ico .cur .qoi
 ```
+
+Image placeholders require **no native tools or extra packages**. `tiny` writes a minimal,
+valid image in the original format. `preserve-shape` preserves the source image's
+pixel width and height, but intentionally removes its visual content. For `.ico`
+and `.cur`, all directory entries and their resolutions are retained; cursor
+hotspots are retained as well. Animated `.gif`, `.apng` and `.webp` files become
+single-frame placeholders (their animation and metadata are not retained).
+
+The lossless WebP placeholder is 34 bytes regardless of its dimensions. Its
+maximum supported canvas is 16,384 × 16,384. Other formats may have their own
+size limits or supported subtypes. If dimensions cannot be read or a valid
+shape-preserving placeholder cannot be encoded, `zip-it` keeps the original
+file and reports a warning instead of writing a malformed replacement.
+
+Formats requiring specialist encoders, such as AVIF, HEIC, DDS and KTX, are
+intentionally not replaced. They are included as original repository files.
 
 Supported video extensions include:
 

@@ -4,24 +4,32 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { createGlobMatchers, matchesAny, toPosixPath } from "./glob.js";
-import { isSecuritySensitivePath } from "./ignore-patterns.js";
+import { isRealEnvPath, isSecuritySensitivePath } from "./ignore-patterns.js";
 import { getFileKind } from "./media.js";
-import type { EffectiveSelectionMode, FileEntry, ScanResult, SelectionMode } from "./types.js";
+import type { EffectiveSelectionMode, EnvMode, FileEntry, ScanResult, SelectionMode } from "./types.js";
 
 export async function scanProjectFiles(
 	root: string,
 	filesystemIgnorePatterns: readonly string[],
 	requestedSelectionMode: SelectionMode = "auto",
 	gitIgnorePatterns: readonly string[] = filesystemIgnorePatterns,
+	envMode: EnvMode = "templates",
 ): Promise<ScanResult> {
 	const selection = await resolveSelectionMode(root, requestedSelectionMode);
 
 	if (selection.mode === "filesystem") {
-		const result = await scanFileSystem(root, filesystemIgnorePatterns);
+		const result = await scanFileSystem(root, filesystemIgnorePatterns, envMode);
 		return { ...result, selectionMode: selection.mode, gitIgnoredFiles: 0, warnings: selection.warnings };
 	}
 
-	const result = await scanGitFiles(root, gitIgnorePatterns, selection.mode);
+	const result = await scanGitFiles(root, gitIgnorePatterns, selection.mode, envMode);
+	if (envMode !== "templates" && selection.mode === "git-visible") {
+		// Git hides .env files via .gitignore; only these env files are recovered
+		// from the filesystem. Everything else still follows Git selection.
+		const fromDisk = await scanFileSystem(root, filesystemIgnorePatterns, envMode);
+		const files = [...new Set([...result.files, ...fromDisk.files.filter(isRealEnvPath)])].sort(comparePaths);
+		return { ...result, files, selectionMode: selection.mode, warnings: [...selection.warnings, ...result.warnings] };
+	}
 	return { ...result, selectionMode: selection.mode, warnings: [...selection.warnings, ...result.warnings] };
 }
 
@@ -92,6 +100,7 @@ async function scanGitFiles(
 	root: string,
 	ignorePatterns: readonly string[],
 	mode: "git-visible" | "git-tracked",
+	envMode: EnvMode,
 ): Promise<Omit<ScanResult, "selectionMode">> {
 	const args =
 		mode === "git-visible"
@@ -115,7 +124,7 @@ async function scanGitFiles(
 			continue;
 		}
 
-		if (isSecuritySensitivePath(relativePath)) {
+		if (isSecuritySensitivePath(relativePath) && !(envMode !== "templates" && isRealEnvPath(relativePath))) {
 			sensitiveFiles.push(relativePath);
 			ignoredFiles++;
 			continue;
@@ -155,6 +164,7 @@ async function scanGitFiles(
 async function scanFileSystem(
 	root: string,
 	ignorePatterns: readonly string[],
+	envMode: EnvMode,
 ): Promise<Omit<ScanResult, "selectionMode" | "gitIgnoredFiles" | "warnings">> {
 	const ignoreMatchers = createGlobMatchers(ignorePatterns);
 	const files: string[] = [];
@@ -186,7 +196,7 @@ async function scanFileSystem(
 				continue;
 			}
 
-			if (isSecuritySensitivePath(relativePath)) {
+			if (isSecuritySensitivePath(relativePath) && !(envMode !== "templates" && isRealEnvPath(relativePath))) {
 				sensitiveFiles.push(relativePath);
 				ignoredFiles++;
 				continue;

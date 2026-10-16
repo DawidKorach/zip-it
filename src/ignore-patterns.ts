@@ -165,15 +165,24 @@ const IGNORE_PATTERN_GROUPS = {
 export type IgnorePatternGroupName = keyof typeof IGNORE_PATTERN_GROUPS;
 
 
-const PUBLIC_ENV_TEMPLATE_NAMES = new Set([".env.example", ".env.sample", ".env.template", ".env.dist"]);
+/** Supports .env.example and named templates such as .env.production.example. */
+export function isPublicEnvTemplatePath(relativePath: string): boolean {
+	const fileName = toPosixPath(relativePath).split("/").at(-1) ?? "";
+	return /^\.env(?:\.[A-Za-z0-9_-]+)*\.(?:example|sample|template|dist)$/.test(fileName);
+}
 const SECURITY_IGNORE_MATCHERS = createGlobMatchers(SECURITY_IGNORE_PATTERNS);
 const GIT_ALWAYS_IGNORE_GROUPS = new Set(["common", "security"]);
+
+export function isRealEnvPath(relativePath: string): boolean {
+	const fileName = toPosixPath(relativePath).split("/").at(-1) ?? "";
+	return /^\.env(?:\.[A-Za-z0-9_-]+)*$/.test(fileName) && !isPublicEnvTemplatePath(relativePath);
+}
 
 export function isSecuritySensitivePath(relativePath: string): boolean {
 	const normalizedPath = toPosixPath(relativePath);
 	const fileName = normalizedPath.split("/").at(-1) ?? normalizedPath;
 
-	if (PUBLIC_ENV_TEMPLATE_NAMES.has(fileName)) {
+	if (isPublicEnvTemplatePath(normalizedPath)) {
 		return false;
 	}
 	if (fileName.startsWith(".env.")) {

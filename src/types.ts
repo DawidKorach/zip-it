@@ -5,6 +5,8 @@ import { PROJECT_KIND_VALUES, type ProjectKind } from "./project-architectures.j
 export { PROJECT_KIND_VALUES, type ProjectKind } from "./project-architectures.js";
 
 export const PROFILE_VALUES = ["auto", ...PROJECT_KIND_VALUES, "none"] as const;
+export const ENV_MODE_VALUES = ["templates", "redacted", "review"] as const;
+export type EnvMode = (typeof ENV_MODE_VALUES)[number];
 export const MEDIA_MODE_VALUES = ["tiny", "preserve-shape"] as const;
 export const VERBOSITY_LEVEL_VALUES = [0, 1, 2, 3, 4] as const;
 export const SELECTION_MODE_VALUES = ["auto", "filesystem", "git-visible", "git-tracked"] as const;
@@ -66,6 +68,7 @@ export type CliOptions = Readonly<{
 	selection: SelectionOptions;
 	archive: ArchiveOptions;
 	scope: ScopeOptions;
+	env: Readonly<{ mode: EnvMode }>;
 	media: MediaOptions;
 	overrides: OverrideOptions;
 	ignorePatterns: readonly string[];
@@ -87,6 +90,7 @@ export type RawCliOptions = {
 	includeRootFiles?: boolean;
 	ignorePatterns: string[];
 	minifyMedia?: boolean;
+	envMode?: EnvMode;
 	mediaMode?: MediaMode;
 	keepVideoOriginals?: boolean;
 	keepAudioOriginals?: boolean;
@@ -113,6 +117,7 @@ export type ZipItConfigLayer = Readonly<{
 		includeRootFiles?: boolean;
 	}>;
 	ignore?: readonly string[];
+	env?: Readonly<{ mode?: EnvMode }>;
 	media?: Readonly<{
 		minify?: boolean;
 		mode?: MediaMode;
